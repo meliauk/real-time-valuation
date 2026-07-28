@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="description" content="基攻宝 - 基金实时估值系统（多 Worker 并发版）" />
+    <title>基攻宝</title>
+    <script>
+      // 防止主题闪烁（FOUC）：渲染前读取用户偏好设 class，默认深色
+      (function() {
+        try {
+          var settings = JSON.parse(localStorage.getItem('jgb_user_settings'));
+          if (settings && settings.theme === 'light') {
+            document.documentElement.classList.add('light');
+          } else if (settings && settings.theme === 'pure-white') {
+            document.documentElement.classList.add('pure-white');
+          } else {
+            document.documentElement.classList.add('dark');
+          }
+        } catch(e) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
+  </head>
+  <body class="antialiased">
+    <div id="app">
+      <div id="vue-fallback" style="color:#94a3b8;padding:24px;text-align:center;font-size:14px;">正在加载...</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

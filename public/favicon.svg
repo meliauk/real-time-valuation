@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- 身体 -->
+  <ellipse cx="50" cy="60" rx="35" ry="30" fill="#ef4444"/>
+  <!-- 肚子 -->
+  <ellipse cx="50" cy="65" rx="22" ry="20" fill="#fca5a5"/>
+  <!-- 头 -->
+  <circle cx="50" cy="32" r="18" fill="#ef4444"/>
+  <!-- 眼睛 -->
+  <circle cx="44" cy="29" r="5" fill="white"/>
+  <circle cx="44" cy="29" r="2.5" fill="#1e293b"/>
+  <circle cx="56" cy="29" r="5" fill="white"/>
+  <circle cx="56" cy="29" r="2.5" fill="#1e293b"/>
+  <!-- 嘴 -->
+  <polygon points="50,36 46,40 54,40" fill="#f97316"/>
+  <!-- 鸡冠 -->
+  <path d="M38 22 Q42 8 46 20 Q48 6 52 20 Q56 8 60 22" fill="#dc2626" stroke="#dc2626" stroke-width="1"/>
+  <!-- 翅膀 -->
+  <ellipse cx="30" cy="58" rx="14" ry="10" fill="#dc2626" transform="rotate(-15 30 58)"/>
+  <!-- 脚 -->
+  <line x1="42" y1="88" x2="38" y2="96" stroke="#f97316" stroke-width="3" stroke-linecap="round"/>
+  <line x1="42" y1="88" x2="46" y2="96" stroke="#f97316" stroke-width="3" stroke-linecap="round"/>
+  <line x1="58" y1="88" x2="54" y2="96" stroke="#f97316" stroke-width="3" stroke-linecap="round"/>
+  <line x1="58" y1="88" x2="62" y2="96" stroke="#f97316" stroke-width="3" stroke-linecap="round"/>
+</svg>

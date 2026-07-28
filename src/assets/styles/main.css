@@ -1,0 +1,17 @@
+/**
+ * 全局样式入口
+ *
+ * 引入设计变量(三主题) + 全局基础 + Element Plus 覆盖 + 动画。
+ * 三主题：暗色科技(dark) / 亮色玻璃(light) / 纯白极简(pure-white)。
+ * 主题通过 document.documentElement 的 class 切换（见 index.html 防闪 + settings store applyTheme）。
+ */
+
+@import './variables.css';
+@import './global.css';
+@import './element-overrides.css';
+@import './animations.css';
+@import './settings-form.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

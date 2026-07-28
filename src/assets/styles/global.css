@@ -1,0 +1,245 @@
+/**
+ * 全局基础样式 - 暗色科技/亮色玻璃/纯白极简 三主题兼容
+ * glass-card / btn / input / 涨跌色 / 玻璃增强(顶部高光+微浮起)
+ */
+
+/* 全局隐藏滚动条 */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}
+
+/* ===== 基础层重置 ===== */
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+    /* 移动端：封死内部可滚动容器滚到边界时的动量穿透（否则 touch 弹性把
+       document/body 推到负 scrollTop，整个页面上移、顶部横栏被顶出）。
+       overflow:hidden 在 iOS Safari 上拦不住弹性滚动，必须靠 overscroll-behavior。
+       桌面端无 touch，无副作用。 */
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: auto;
+  }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-secondary);
+    font-size: var(--font-md);
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow: hidden;
+    transition: background-color var(--transition-normal), color var(--transition-normal);
+  }
+
+  ::selection {
+    background: var(--color-primary-glow);
+    color: var(--text-primary);
+  }
+
+  a {
+    color: var(--color-primary-light);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+  }
+  a:hover {
+    color: var(--color-primary);
+  }
+
+  .font-number {
+    font-family: var(--font-mono);
+    letter-spacing: 0.01em;
+    font-weight: 500;
+  }
+}
+
+/* ===== 组件层 ===== */
+@layer components {
+  /* 玻璃卡片基础类（增强：顶部高光 + 微浮起） */
+  .glass-card {
+    background: var(--glass-bg);
+    background-image: linear-gradient(135deg, var(--glass-highlight), transparent 60%);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--glass-shadow);
+    transition: transform var(--transition-bounce), box-shadow var(--transition-normal),
+                background var(--transition-normal), border-color var(--transition-normal);
+  }
+  .glass-card:hover {
+    background-color: var(--bg-card-hover);
+    border-color: var(--border-hover);
+    box-shadow: var(--shadow-lg), inset 0 1px 0 var(--glass-highlight);
+  }
+
+  /* 更高景深的玻璃卡片 */
+  .glass-card-elevated {
+    box-shadow: var(--shadow-xl), var(--glass-shadow);
+  }
+
+  /* 关闭毛玻璃效果（设置项 + 纯白主题自动跟随） */
+  html.no-glass,
+  html.pure-white {
+    --glass-blur: 0px;
+  }
+  html.no-glass .glass-card,
+  html.pure-white .glass-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--bg-card);
+    background-image: none;
+  }
+  html.no-glass .glass-card:hover,
+  html.pure-white .glass-card:hover {
+    background: var(--bg-card-hover);
+    transform: none;
+  }
+  html.no-glass .back-to-top,
+  html.no-glass .longpress-popup,
+  html.no-glass .search-overlay,
+  html.no-glass .privacy-popper,
+  html.no-glass .el-dropdown__popper.el-popper,
+  html.no-glass .el-select-dropdown,
+  html.no-glass .el-message-box {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  html.pure-white .back-to-top,
+  html.pure-white .search-overlay,
+  html.pure-white .el-dropdown__popper.el-popper,
+  html.pure-white .el-select-dropdown,
+  html.pure-white .el-message-box {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* 发光边框效果 */
+  .glow-border {
+    border: 1px solid var(--color-primary);
+    box-shadow: var(--shadow-glow);
+  }
+
+  /* 涨跌文字色 */
+  .text-rise { color: var(--color-rise); }
+  .text-fall { color: var(--color-fall); }
+  .text-flat { color: var(--color-flat); }
+  .text-profit { color: var(--color-rise); }
+  .text-loss { color: var(--color-fall); }
+
+  /* 涨跌背景色 */
+  .bg-rise-soft { background: var(--color-rise-glow); }
+  .bg-fall-soft { background: var(--color-fall-glow); }
+
+  /* 涨跌发光效果 */
+  .glow-rise { box-shadow: var(--shadow-rise-glow); }
+  .glow-fall { box-shadow: var(--shadow-fall-glow); }
+
+  /* 渐变背景 */
+  .gradient-primary {
+    background: var(--accent-gradient);
+  }
+  .gradient-dark {
+    background: linear-gradient(180deg, var(--bg-surface), var(--bg-base));
+  }
+  .gradient-soft {
+    background: var(--accent-gradient-soft);
+  }
+
+  /* 渐变文字 */
+  .gradient-text {
+    background: var(--accent-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* 通用按钮基础 */
+  .btn-base {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+    font-size: var(--font-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    border: 1px solid var(--border-default);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+  }
+  .btn-base:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--border-hover);
+  }
+
+  /* 主要按钮（渐变背景增强） */
+  .btn-primary {
+    background: var(--accent-gradient);
+    border: none;
+    color: #ffffff;
+    font-weight: 600;
+  }
+  .btn-primary:hover {
+    background: var(--accent-gradient-hover);
+    box-shadow: var(--shadow-glow);
+    transform: translateY(-1px);
+  }
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+
+  /* 输入框基础 */
+  .input-base {
+    background: var(--bg-input);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: var(--font-sm);
+    transition: all var(--transition-fast);
+    outline: none;
+  }
+  .input-base:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-primary-glow);
+  }
+  .input-base::placeholder {
+    color: var(--text-muted);
+  }
+
+  /* 隐私遮罩 */
+  .privacy-blur {
+    filter: blur(5px);
+    user-select: none;
+    pointer-events: none;
+    transition: filter 0.2s ease;
+  }
+
+  /* 骨架屏闪光 */
+  .shimmer {
+    background: linear-gradient(90deg,
+      var(--bg-card) 0%,
+      var(--bg-card-hover) 50%,
+      var(--bg-card) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+}

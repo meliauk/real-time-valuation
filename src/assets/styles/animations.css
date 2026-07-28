@@ -1,0 +1,191 @@
+/**
+ * 动画与过渡效果
+ * 包含数字脉冲、卡片入场、列表渲染等金融场景常用动画
+ */
+
+/* ===== 淡入 ===== */
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out both;
+}
+
+/* ===== 上滑入场 ===== */
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out both;
+}
+
+/* ===== 下滑入场 ===== */
+.animate-slide-down {
+  animation: slideDown 0.3s ease-out both;
+}
+
+/* ===== 数字脉冲闪烁（估值变化时使用） ===== */
+.animate-pulse-number {
+  animation: pulseNumber 0.4s ease-out;
+}
+
+/* ===== 轻柔呼吸（加载中指示） ===== */
+.animate-breathe {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+/* ===== 旋转加载 ===== */
+.animate-spin-slow {
+  animation: spin 1.5s linear infinite;
+}
+
+/* ===== 卡片渐次入场（用于列表渲染） ===== */
+.animate-stagger {
+  animation: slideUp 0.3s ease-out both;
+}
+.animate-stagger:nth-child(1) { animation-delay: 0ms; }
+.animate-stagger:nth-child(2) { animation-delay: 50ms; }
+.animate-stagger:nth-child(3) { animation-delay: 100ms; }
+.animate-stagger:nth-child(4) { animation-delay: 150ms; }
+.animate-stagger:nth-child(5) { animation-delay: 200ms; }
+.animate-stagger:nth-child(6) { animation-delay: 250ms; }
+.animate-stagger:nth-child(7) { animation-delay: 300ms; }
+.animate-stagger:nth-child(8) { animation-delay: 350ms; }
+.animate-stagger:nth-child(9) { animation-delay: 400ms; }
+.animate-stagger:nth-child(10) { animation-delay: 450ms; }
+
+/* ===== 关键帧定义 ===== */
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes slideUp {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDown {
+  0% { opacity: 0; transform: translateY(-12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulseNumber {
+  0% { opacity: 0.5; transform: scale(1.05); }
+  50% { opacity: 1; transform: scale(1); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ===== FAB 发光脉冲 ===== */
+@keyframes fabGlow {
+  0%, 100% { box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4); }
+  50% { box-shadow: 0 4px 32px rgba(99, 102, 241, 0.6), 0 0 12px rgba(99, 102, 241, 0.3); }
+}
+
+/* ===== 弹跳缩放 ===== */
+@keyframes celebrateScale {
+  0% { transform: scale(0.5); opacity: 0; }
+  60% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ===== 发光脉冲（公告弹窗边框） ===== */
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.3); }
+  50% { box-shadow: 0 0 40px rgba(99, 102, 241, 0.6), 0 0 60px rgba(99, 102, 241, 0.2); }
+}
+
+/* ===== 过渡类 ===== */
+.transition-colors {
+  transition: color var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.transition-opacity {
+  transition: opacity var(--transition-normal);
+}
+
+.transition-transform {
+  transition: transform var(--transition-normal);
+}
+
+.transition-all {
+  transition: all var(--transition-normal);
+}
+
+/* ===== 减少动画模式（排除公益页面） ===== */
+html.reduce-motion {
+  scroll-behavior: auto;
+}
+/* 仅针对动画/过渡类，不使用 * 通配符避免干扰浏览器滚动 */
+html.reduce-motion .animate-fade-in,
+html.reduce-motion .animate-slide-up,
+html.reduce-motion .animate-slide-down,
+html.reduce-motion .animate-pulse-number,
+html.reduce-motion .animate-breathe,
+html.reduce-motion .animate-spin-slow,
+html.reduce-motion .animate-stagger,
+html.reduce-motion .transition-colors,
+html.reduce-motion .transition-opacity,
+html.reduce-motion .transition-transform,
+html.reduce-motion .transition-all,
+html.reduce-motion .glass-card,
+html.reduce-motion .btn-base,
+html.reduce-motion .input-base,
+html.reduce-motion .el-button {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+/* 无限动画直接停止 */
+html.reduce-motion .animate-breathe,
+html.reduce-motion .animate-spin-slow {
+  animation: none !important;
+}
+
+/* 公益页面动画不受减少动画模式影响 */
+html.reduce-motion .charity-page *,
+html.reduce-motion .charity-page *::before,
+html.reduce-motion .charity-page *::after,
+html.reduce-motion .thanks-overlay,
+html.reduce-motion .thanks-overlay *,
+html.reduce-motion .thanks-overlay *::before,
+html.reduce-motion .thanks-overlay *::after {
+  animation-duration: revert !important;
+  animation-iteration-count: revert !important;
+  transition-duration: revert !important;
+}
+
+/* 跑马灯动画在减少动画模式下的替代（静态边框） */
+html.reduce-motion .page-marquee .marquee-edge {
+  animation: none !important;
+  background: var(--color-primary-glow) !important;
+}
+html.reduce-motion .marquee-corner {
+  animation: none !important;
+  opacity: 0.4 !important;
+}
+
+/* ===== 增强动画 ===== */
+
+/* 弹性缩放入场（带回弹缓动，用于弹窗内容/卡片强调入场） */
+.animate-scale-in {
+  animation: scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes scaleIn {
+  0% { opacity: 0; transform: scale(0.85); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* 骨架屏闪光（引用 global.css 中已定义的 @keyframes shimmer） */
+.animate-shimmer {
+  background: linear-gradient(90deg,
+    var(--bg-card) 0%,
+    var(--bg-card-hover) 50%,
+    var(--bg-card) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
