@@ -126,6 +126,9 @@ export function useAutoRefresh() {
     if (!settingsStore.autoRefresh) return
     if (document.visibilityState !== 'visible') return
     if (fundStore.fundCodes.length === 0) return
+    // 手机端后台冻结→次日恢复：实时缓存可能带昨日 stale 值，先清过期再刷新，
+    // 避免 loop 重拉前显示异常（A股交易日已变即清空，同日不动）。
+    fundStore.expireStaleRealtimeCache()
     const gap = Date.now() - fundStore.lastRefreshTime
     if (gap >= 0 && gap < VISIBILITY_REFRESH_MIN_GAP_MS) return
     await fundStore.refreshAllValuations()
