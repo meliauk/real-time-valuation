@@ -18,7 +18,7 @@
         <span :class="['meta-badge', isEstimated ? 'badge-est' : 'badge-confirmed']">{{ isEstimated ? '今日估值' : '已确认' }}</span>
         <span :class="['meta-badge', delayDays === 2 ? 'badge-t2' : 'badge-t1']">{{ confirmTypeText }}</span>
         <span class="meta-time">{{ valuationTimeStr }}</span>
-        <span v-if="realtimeGszzl != null" :class="['meta-realtime', realtimeGszzl > 0 ? 'rt-rise' : realtimeGszzl < 0 ? 'rt-fall' : 'rt-flat']">
+        <span v-if="realtimeGszzl != null && !isHiddenRtSource" :class="['meta-realtime', realtimeGszzl > 0 ? 'rt-rise' : realtimeGszzl < 0 ? 'rt-fall' : 'rt-flat']">
           <span class="rt-line">
             <span class="rt-dot"></span>
             <span class="rt-val font-number">{{ realtimeGszzl > 0 ? '+' : '' }}{{ realtimeGszzl.toFixed(2) }}%</span>
@@ -343,6 +343,8 @@ const confirmTypeText = computed(() => confirmTypeLabel(getConfirmType(delayDays
 const realtimeGszzl = computed(() => fundStore.getValuation(fundCode.value)?.realtimeGszzl ?? null)
 const realtimeUpdatedAt = computed(() => fundStore.getValuation(fundCode.value)?.realtimeUpdatedAt ?? '')
 const realtimeSource = computed(() => fundStore.getValuation(fundCode.value)?.realtimeSource ?? '')
+/** 持仓加权胶囊源（依赖完整持仓，受限后数据不准则隐藏，功能不删） */
+const isHiddenRtSource = computed(() => realtimeSource.value === '持仓预测' || realtimeSource.value === '实时推算')
 
 const rateColor = computed(() => {
   if (currentGszzl.value > 0) return 'text-rise'
