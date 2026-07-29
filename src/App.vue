@@ -150,8 +150,16 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-height: 100vh;
+  /* height 锁死（非 min-height）：用 100dvh 动态视口跟随 iOS 地址栏伸缩，
+     100vh 兜底（旧浏览器）。锁死高度让 .app-main 的 flex:1 有确定上限，
+     内部 .home-page(100dvh) 与之对齐，避免地址栏显示时 100vh > 可视区
+     导致 body 溢出、文档上滑把顶部 header 顶出屏幕。 */
+  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
+  /* 阻断内部滚动溢出向 body/文档传播（iOS Safari 弹性滚动），
+     与 html 的 overscroll-behavior:none 双保险。 */
+  overscroll-behavior: contain;
 }
 .app-main {
   flex: 1;
@@ -159,6 +167,8 @@ onUnmounted(() => {
   padding-bottom: 60px;
   width: 100%;
   max-width: 640px;
+  /* 内部可滚动容器滚到边界时不外传（contain 在最外层兜底，防 body 弹性上移） */
+  overscroll-behavior: contain;
 }
 .app-layout:has(.news-page, .fund-detail-shell) .app-main {
   padding-bottom: 0;
