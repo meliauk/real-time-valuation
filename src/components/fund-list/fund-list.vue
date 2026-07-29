@@ -123,8 +123,8 @@
                       <span class="ctrl-date">{{ formatDate(row.valuationTime) }}</span>
                     </div>
                     <!-- 实时涨跌幅 + 已更新徽章：实时在左、已更新在右 -->
-                    <div v-if="row.isUpdated || row.realtimeGszzl != null" class="ctrl-status-row">
-                      <span v-if="row.realtimeGszzl != null" :class="['ctrl-realtime', row.realtimeGszzl > 0 ? 'rt-rise' : row.realtimeGszzl < 0 ? 'rt-fall' : 'rt-flat', row.realtimePlaceholder && 'rt-placeholder']">
+                    <div v-if="row.isUpdated || (row.realtimeGszzl != null && isRealtimeBadgeVisible(row.realtimeSource))" class="ctrl-status-row">
+                      <span v-if="row.realtimeGszzl != null && isRealtimeBadgeVisible(row.realtimeSource)" :class="['ctrl-realtime', row.realtimeGszzl > 0 ? 'rt-rise' : row.realtimeGszzl < 0 ? 'rt-fall' : 'rt-flat', row.realtimePlaceholder && 'rt-placeholder']">
                         <span class="rt-dot"></span>
                         <span class="rt-value">{{ row.realtimeGszzl > 0 ? '+' : '' }}{{ row.realtimeGszzl.toFixed(2) }}%</span>
                         <span class="rt-label">{{ row.realtimeSource || '实时' }}</span>
@@ -141,16 +141,18 @@
                       <span :class="['dual-main dual-main-profit font-number', row.todayProfit > 0 ? 'text-rise' : row.todayProfit < 0 ? 'text-fall' : 'text-flat', !p.todayProfit && 'privacy-blur']">
                         {{ formatProfitCompact(row.todayProfit) }}
                       </span>
-                      <span :class="['dual-sub font-number', row.changeRate > 0 ? 'text-rise' : row.changeRate < 0 ? 'text-fall' : 'text-flat', !p.todayRate && 'privacy-blur']">
+                      <span v-if="row.hasTodayData" :class="['dual-sub font-number', row.changeRate > 0 ? 'text-rise' : row.changeRate < 0 ? 'text-fall' : 'text-flat', !p.todayRate && 'privacy-blur']">
                         {{ row.changeRate > 0 ? '+' : '' }}{{ row.changeRate.toFixed(2) }}%
                       </span>
+                      <span v-else class="dual-sub font-number text-muted">--</span>
                     </div>
                   </template>
                   <div v-else class="dual-row">
                     <span class="dual-main font-number text-muted">--</span>
-                    <span :class="['dual-sub font-number', row.changeRate > 0 ? 'text-rise' : row.changeRate < 0 ? 'text-fall' : 'text-flat', !p.todayRate && 'privacy-blur']">
+                    <span v-if="row.hasTodayData" :class="['dual-sub font-number', row.changeRate > 0 ? 'text-rise' : row.changeRate < 0 ? 'text-fall' : 'text-flat', !p.todayRate && 'privacy-blur']">
                       {{ row.changeRate > 0 ? '+' : '' }}{{ row.changeRate.toFixed(2) }}%
                     </span>
+                    <span v-else class="dual-sub font-number text-muted">--</span>
                   </div>
                 </td>
 
@@ -200,7 +202,7 @@
                 <span class="card-name" :title="row.fundName">{{ row.fundName }}</span>
               </span>
             </div>
-            <ChangeIndicator :value="row.changeRate" type="rate" hide-arrow :class="{ 'privacy-blur': !p.todayRate }" />
+            <ChangeIndicator :value="row.hasTodayData ? row.changeRate : null" type="rate" hide-arrow :class="{ 'privacy-blur': !p.todayRate }" />
           </div>
 
           <div class="card-body">
@@ -236,7 +238,7 @@
                 <span v-else class="metric-value font-number text-muted">--</span>
                 <span class="metric-label">收益率</span>
               </div>
-              <div v-if="row.realtimeGszzl != null" class="metric">
+              <div v-if="row.realtimeGszzl != null && isRealtimeBadgeVisible(row.realtimeSource)" class="metric">
                 <span :class="['realtime-badge', row.realtimeGszzl > 0 ? 'rt-rise' : row.realtimeGszzl < 0 ? 'rt-fall' : 'rt-flat', row.realtimePlaceholder && 'rt-placeholder']">
                   <span class="rt-dot"></span>
                   <span class="rt-value">{{ row.realtimeGszzl > 0 ? '+' : '' }}{{ row.realtimeGszzl.toFixed(2) }}%</span>
@@ -391,6 +393,15 @@ function formatDate(timeStr: string): string {
   // 形如 2024-01-15 或 2024-01-15 16:00:00，取前10位日期部分
   const date = timeStr.slice(0, 10)
   return /^\d{4}-\d{1,2}-\d{1,2}$/.test(date) ? date : (timeStr || '--')
+}
+
+/** 实时胶囊是否可见。
+ *  「持仓预测」「实时推算」依赖完整持仓加权，东财持仓接口受限后取不到完整持仓，
+ *  数据不准则隐藏胶囊（功能不删，仅 UI 隐藏，后期持仓恢复再开放）。
+ *  其它源（如官方实时/休盘）正常显示。 */
+const HIDDEN_RT_SOURCES = new Set(['持仓预测', '实时推算'])
+function isRealtimeBadgeVisible(source: string | undefined): boolean {
+  return !source || !HIDDEN_RT_SOURCES.has(source)
 }
 
 // ===== 长按弹出菜单 =====
