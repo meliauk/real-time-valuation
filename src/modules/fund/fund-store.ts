@@ -28,7 +28,7 @@ import { normalizeStockCodeTencent } from '@/shared/net/tencent-codec'
 import { computeEstimatedGszzlFromPrevDay } from '@/modules/fund/calc/gszzl-weight'
 import { beijingNow } from '@/shared/utils/date-format'
 import { fetchEstimatedHoldings, type FetchStockQuotes } from '@/modules/fund/holdings/estimated-holdings'
-import { fetchFundAllHoldings } from '@/modules/fund/holdings/f10-holdings-fetch'
+import { fetchTop10FromPingzhong } from '@/modules/fund/holdings/pingzhong-holdings-fetch'
 import type { PingzhongPreloaded } from '@/modules/fund/holdings/pingzhong-holdings-fetch'
 import { generateIntradayPoints } from '@/modules/fund/intraday/intraday-points'
 import { fetchIntradayEstimate } from '@/modules/fund/intraday/intraday-estimate-fetch'
@@ -414,7 +414,8 @@ export const useFundStore = defineStore('fund', () => {
 
     const promise = (async (): Promise<FundAllHoldings | null> => {
       try {
-        const result = await fetchFundAllHoldings(fundCode, { full: true })
+        // 占比纯前端拿不到，走 pingzhong 前十大（有代码、名称由腾讯报价回填），不走 F10 全量避免代理超时
+        const result = await fetchTop10FromPingzhong(fundCode)
         if (result) {
           lruSet(t1HoldingsCache.value, fundCode, { data: result, cachedDate: today }, MAX_ESTIMATED_CACHE)
         }
