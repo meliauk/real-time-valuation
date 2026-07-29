@@ -12,7 +12,7 @@ import type { IntradayPoint } from '@/modules/fund/fund-types'
 import type { SortField } from '@/modules/fund/fund-types'
 import { ChangeDirection } from '@/config/enums'
 import { safeParseFloat, displayRate, roundMoney } from '@/shared/utils/safe-math'
-import { formatValuationTime, formatHoldingDate } from '@/shared/utils/date-format'
+import { formatValuationTime, formatHoldingDate, isPastDailyBadgeReset } from '@/shared/utils/date-format'
 import { getPreviousTradingDay, getTodayStr, isCnTradingDay } from '@/modules/fund/valuation/cn-trading-day'
 import dayjs from 'dayjs'
 
@@ -36,6 +36,8 @@ export interface FundRowData {
   isEstimated?: boolean
   isUpdated?: boolean
   delayDays?: 1 | 2
+  /** 是否有今日涨跌数据（有盘中估算 gztime 或今日确认净值）。无数据时今日涨跌列显示 -- 而非 0.00% */
+  hasTodayData?: boolean
   realtimeGszzl?: number
   realtimeSource?: string
   realtimeUpdatedAt?: string
@@ -68,12 +70,14 @@ export function useFundData() {
         const displayGszzl = displayRate(gszzl)
         const isEstimated = v?.isEstimated ?? true
         const today = getTodayStr()
-        // isUpdated（已更新）：今天基金公司更新了确认净值即算已更新，无论更新的是今日还是昨日净值。
-        //   - T+1（国内基金）：今天会更新出今日(7.20)净值 → jzrq >= today
-        //   - T+2（QDII等）：今天会更新出昨日(7.19)净值 → jzrq >= getPreviousTradingDay()
-        //   不再要求 jzrq===today——T+2 今日更新昨日净值也算"已更新"。
+        // isUpdated（已更新）：约定第二日北京时间 08:30 准时清空徽章。
+        //   - 08:30 前：一律不显示（避免把"昨日已更新"误显成今日，清晨 fundgz 尚未出今日估算时
+        //     基金保留昨日确认值 isEstimated=false 会误亮徽章）。
+        //   - 08:30 后：基金公司当日发布了确认净值才算已更新——
+        //     T+1：jzrq >= today；T+2：jzrq >= getPreviousTradingDay()。
+        //   接口无当日确认数据（jzrq 落后预期日期）→ 不显示徽章，今日涨跌列随之显示 --（由 changeRate 逻辑兜底）。
         const expectedConfirmDate = v?.delayDays === 2 ? getPreviousTradingDay() : today
-        const isUpdated = !isEstimated || (v?.jzrq != null && v.jzrq >= expectedConfirmDate)
+        const isUpdated = isPastDailyBadgeReset() && v?.jzrq != null && v.jzrq >= expectedConfirmDate
 
         // 名称：统一走 resolveFundName（估值实时 name 优先，回退 fundNameMap），
         // fundgz 失败时也能显示搜索/目录拿到的真名。列表无名称时显示 --。
@@ -104,6 +108,10 @@ export function useFundData() {
           ? (totalReturnRate > 0 ? 'profit' : totalReturnRate < 0 ? 'loss' : 'flat')
           : 'flat'
 
+        // 是否有今日涨跌数据：有盘中估算 gztime（fundgz 出今日估值），或今日确认净值已发布（jzrq >= 预期日期）。
+        // 二者皆无 → 接口无当日数据，今日涨跌列显示 --（而非 0.00%）。
+        const hasTodayData = (!!v?.gztime) || (v?.jzrq != null && v.jzrq >= expectedConfirmDate)
+
         return {
           fundCode: code,
           fundName,
@@ -122,6 +130,7 @@ export function useFundData() {
           holdingDate: formatHoldingDate(holdingStore.activeHoldings.find(h => h.fundCode === code)?.holdingDate ?? ''),
           isEstimated,
           isUpdated,
+          hasTodayData,
           delayDays: v?.delayDays ?? 1,
           realtimeGszzl: v?.realtimeGszzl,
           realtimeSource: v?.realtimeSource,
@@ -139,7 +148,7 @@ export function useFundData() {
           changeRate: 0, netChangeRate: 0, changeDirection: ChangeDirection.Flat,
           holdingAmount: 0, costPrice: 0, todayProfit: 0, totalProfit: 0,
           totalReturnRate: null, profitStatus: 'flat', valuationTime: '', holdingDate: '',
-          isEstimated: true, delayDays: 1,
+          isEstimated: true, isUpdated: false, hasTodayData: false, delayDays: 1,
           intradayPoints: [], intradayBaseValue: 0,
         }
       }
