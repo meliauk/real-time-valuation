@@ -216,7 +216,7 @@
             </div>
             <div class="holdings-table">
               <div class="holdings-thead">
-                <span>#</span><span>股票</span><span>占比</span><span>涨跌</span><span>市场</span>
+                <span>#</span><span>股票</span><span>涨跌</span>
               </div>
               <div v-for="(stock, idx) in displayHoldings.holdings" :key="stock.stockCode" class="holdings-row">
                 <span class="h-idx">{{ idx + 1 }}</span>
@@ -224,29 +224,25 @@
                   <span class="h-name">{{ stock.stockName || stock.stockCode }}</span>
                   <span class="h-code font-number">{{ stock.stockCode }}</span>
                 </div>
-                <span class="h-ratio font-number">{{ stock.ratio > 0 ? stock.ratio.toFixed(2) + '%' : '--' }}</span>
                 <span v-if="stockChange(stock) != null" class="h-rate-wrap">
                   <span :class="['h-rate font-number', stockChangeClass(stock)]">
                     {{ stockChange(stock)! > 0 ? '+' : '' }}{{ (stockChange(stock) as number).toFixed(2) }}%
                   </span>
                 </span>
                 <span v-else class="h-rate font-number text-muted">--</span>
-                <span class="h-market font-number">{{ computeMarketLabel(stock) }}</span>
               </div>
             </div>
           </template>
           <template v-else-if="fundInfo && fundInfo.topHoldings && fundInfo.topHoldings.length > 0">
             <div class="holdings-table">
-              <div class="holdings-thead"><span>#</span><span>股票</span><span>占比</span><span></span><span>市场</span></div>
+              <div class="holdings-thead"><span>#</span><span>股票</span><span></span></div>
               <div v-for="(stock, idx) in fundInfo.topHoldings" :key="stock.stockCode" class="holdings-row">
                 <span class="h-idx">{{ idx + 1 }}</span>
                 <div class="h-name-wrap">
                   <span class="h-name">{{ stock.stockName }}</span>
                   <span class="h-code font-number">{{ stock.stockCode }}</span>
                 </div>
-                <span class="h-ratio font-number">{{ stock.ratio > 0 ? stock.ratio.toFixed(2) + '%' : '--' }}</span>
                 <span class="h-rate text-muted">--</span>
-                <span class="h-market font-number text-muted">--</span>
               </div>
             </div>
           </template>
@@ -290,7 +286,6 @@ import { useSettingsStore } from '@/modules/settings/settings-store'
 import type { FundAllHoldings, HoldingDetailItem } from '@/modules/fund/fund-types'
 import type { FundFullInfo as FundInfo } from '@/modules/fund/services/fund-full-data-fetch'
 import { getFundFullData } from '@/modules/fund/services/fund-full-data-fetch'
-import { fetchFundAllHoldings } from '@/modules/fund/holdings/f10-holdings-fetch'
 import { fetchIntradayEstimate } from '@/modules/fund/intraday/intraday-estimate-fetch'
 import { getPreviousTradingDay, getTodayStr, isCnTradingDay } from '@/modules/fund/valuation/cn-trading-day'
 import { getConfirmType, confirmTypeLabel } from '@/modules/fund/valuation/fund-type'
@@ -298,7 +293,6 @@ import { confirm } from '@/composables/use-confirm'
 import { formatValuationTimeWithSeconds } from '@/shared/utils/date-format'
 import { formatProfitCompact, formatCompactMoney } from '@/shared/utils/money-format'
 import { useEstimatedHoldings } from '@/composables/use-estimated-holdings'
-import { computeMarketLabel } from '@/shared/market/market-label'
 import PendingPlanList from '@/components/shared/pending-plan-list.vue'
 
 use([LineChart, GridComponent, TooltipComponent, DataZoomComponent, MarkLineComponent, CanvasRenderer])
@@ -343,7 +337,7 @@ const confirmTypeText = computed(() => confirmTypeLabel(getConfirmType(delayDays
 const realtimeGszzl = computed(() => fundStore.getValuation(fundCode.value)?.realtimeGszzl ?? null)
 const realtimeUpdatedAt = computed(() => fundStore.getValuation(fundCode.value)?.realtimeUpdatedAt ?? '')
 const realtimeSource = computed(() => fundStore.getValuation(fundCode.value)?.realtimeSource ?? '')
-/** 持仓加权胶囊源（依赖完整持仓，受限后数据不准则隐藏，功能不删） */
+/** 「持仓预测」「实时推算」依赖完整持仓加权，占比拿不到故隐藏胶囊（功能不删，后期恢复占比再开放） */
 const isHiddenRtSource = computed(() => realtimeSource.value === '持仓预测' || realtimeSource.value === '实时推算')
 
 const rateColor = computed(() => {
@@ -676,33 +670,23 @@ async function loadData(code: string): Promise<void> {
   })()
 
   const holdingsTask = (async () => {
-    let result: FundAllHoldings | null = null
-    try {
-      result = await fetchFundAllHoldings(code, { full: true })
-      if (fundCode.value !== code) return
-      fundAllHoldings.value = result
-      holdingsLoading.value = false
-    } catch { /* 静默 */ } finally {
-      if (fundCode.value === code) holdingsLoading.value = false
-    }
+    // 占比数据纯前端拿不到（F10 script+代理均失败），不再走 F10 全量取数（避免数十秒代理超时卡顿）。
+    // 持仓直接由 loadEstimation 走 pingzhong 前十大（有代码、名称由腾讯报价回填）。
+    holdingsLoading.value = false
 
-    // 切了基金才退出；F10 失效(result=null)继续走 loadEstimation——其内部会兜底
-    // 用 pingzhong stockCodesNew 取前十大（F10 持仓接口已失效）。
     if (fundCode.value !== code) return
 
     // 等 fullDataTask 完成，复用其已加载的 pingzhongdata（stockCodesNew），
-    // 传给 loadEstimation 避免二次 script 注入。F10 失效后前段空跑，getFundFullData 通常 <1s，延迟可忽略。
+    // 传给 loadEstimation 避免二次 script 注入。getFundFullData 通常 <1s。
     const pingzhongRaw = await fullDataTask
 
     if (delayDays.value === 2) {
       fundStore.startStockPreload?.()
       await loadEstimation(pingzhongRaw)
     } else {
-      // T+1：全量持仓写入 t1HoldingsCache（推算失败时透视表回退用），
-      //   loadEstimation 从 estimatedHoldingsCache 取推算持仓（未命中则自取）填本地 ref → displayHoldings 显示「推算完整持仓」。
-      //   loadEstimation 内的 gszzl 自愈有 isT2 守卫，T+1 不触发（今日涨跌幅恒由 fundgz 驱动）。
-      //   涨跌由 store loop 全局预加载（国内股东财K线），详情页 composable watch 全局缓存增量显示
-      if (result) fundStore.setT1Holdings(code, result)
+      // T+1：loadEstimation 走 pingzhong 前十大填本地 ref → displayHoldings 显示。
+      //   今日涨跌幅恒由 fundgz 驱动，涨跌由 store loop 全局预加载（国内股东财K线），
+      //   详情页 composable watch 全局缓存增量显示。
       fundStore.startStockPreload?.()
       await loadEstimation(pingzhongRaw)
       refreshFromCache() // 持仓就绪后主动从全局缓存提取一次（缓存已有数据时立即显示）
@@ -982,7 +966,7 @@ watch(fundCode, (code) => {
 }
 .holdings-thead {
   display: grid;
-  grid-template-columns: 20px 1fr 52px 72px 44px;
+  grid-template-columns: 20px 1fr 64px;
   padding: 5px 10px;
   background: var(--bg-surface);
   font-size: 10px;
@@ -990,12 +974,10 @@ watch(fundCode, (code) => {
   gap: 8px;
   align-items: center;
 }
-.holdings-thead span:nth-child(3),
-.holdings-thead span:nth-child(4),
-.holdings-thead span:nth-child(5) { text-align: right; }
+.holdings-thead span:nth-child(3) { text-align: right; }
 .holdings-row {
   display: grid;
-  grid-template-columns: 20px 1fr 52px 72px 44px;
+  grid-template-columns: 20px 1fr 64px;
   padding: 7px 10px;
   gap: 8px;
   align-items: center;
