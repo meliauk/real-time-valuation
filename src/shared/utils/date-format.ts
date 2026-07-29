@@ -34,6 +34,22 @@ export function getCurrentTimeStr(): string {
   return beijingNow().format('HH:mm')
 }
 
+/**
+ * 当日「已更新」徽章重置时刻：北京时间 08:30。
+ * 此刻前视为"新一天的清晨"——基金公司尚未发布当日确认净值，
+ * 徽章一律不显示（避免把"昨日已更新"误显示成今日）。此刻后才按 jzrq 判定是否已更新。
+ */
+export const DAILY_BADGE_RESET_HOUR = 8
+export const DAILY_BADGE_RESET_MINUTE = 30
+
+/** 当前北京时间是否已过当日 08:30（过了才允许显示"已更新"徽章） */
+export function isPastDailyBadgeReset(): boolean {
+  const d = beijingNow()
+  const h = d.hour()
+  const m = d.minute()
+  return h > DAILY_BADGE_RESET_HOUR || (h === DAILY_BADGE_RESET_HOUR && m >= DAILY_BADGE_RESET_MINUTE)
+}
+
 /** 判断是否跨日 - lastUpdateDate 与今日北京日期不同即为跨日 */
 export function isCrossDay(lastUpdateDate: string): boolean {
   if (!lastUpdateDate) return false
