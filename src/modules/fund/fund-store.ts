@@ -20,9 +20,9 @@ import type {
 import type { StockQuoteInfo, StockMarket } from '@/shared/types/common-types'
 import { RefreshStatus } from '@/config/enums'
 import { STORAGE_KEYS, DEFAULT_SETTINGS, FUND_VALUATION_CONFIG, ESTIMATE_CONFIG, INTRADAY_CONFIG } from '@/config/constants'
-import { loadJSON, saveJSON, loadString, saveString } from '@/shared/cache/local-storage-io'
+import { loadJSON, saveJSON, loadString, saveString, removeKey } from '@/shared/cache/local-storage-io'
 import { isValidFundCode } from '@/shared/utils/validation'
-import { getTodayStr, getBaseDay } from '@/modules/fund/valuation/cn-trading-day'
+import { getTodayStr, getBaseDay, getPreviousTradingDay, isCnTradingDay } from '@/modules/fund/valuation/cn-trading-day'
 import { classifyShare } from '@/shared/market/market-classify'
 import { normalizeStockCodeTencent } from '@/shared/net/tencent-codec'
 import { computeEstimatedGszzlFromPrevDay } from '@/modules/fund/calc/gszzl-weight'
@@ -167,20 +167,40 @@ export const useFundStore = defineStore('fund', () => {
     saveJSON(STORAGE_KEYS.FUND_CODES, fundCodes.value)
   }
 
-  /** 恢复双全局缓存（基准日校验：基准日变化=美股收盘跨日，则丢弃旧缓存）；
-   *  localStorage 存的是普通对象，需转回 Map */
+  /** 恢复双全局缓存（跨日校验）；
+   *  localStorage 存的是普通对象，需转回 Map。
+   *  - prevDay（昨日收盘）：基准日校验（美股 lastClosedDay，baseDay 变化=全球跨日）
+   *  - realtime（今日实时）：用 A股当前交易日校验（非 baseDay）。实时数据属于当日市场，
+   *    清晨美股基准日未翻篇时 baseDay 不变，会把昨日 A股实时值误当今日恢复→手机端后台冻结
+   *    后次日恢复显示异常。改用 A股当前交易日（交易日=今日，非交易日=上一交易日）校验，
+   *    过期则丢弃内存恢复并清 localStorage，强制 loop 重拉。 */
   function restoreStockCaches(): void {
     const baseDay = getBaseDay()
     const prevDate = loadString(STORAGE_KEYS.STOCK_PREV_DAY_DATE)
     if (prevDate === baseDay) {
       const raw = loadJSON<Record<string, StockQuoteInfo> | null>(STORAGE_KEYS.STOCK_PREV_DAY_CACHE, null)
       stockPrevDayCache.value = raw ? new Map(Object.entries(raw)) : new Map()
+    } else {
+      // 过期：清 localStorage 避免下次仍读到旧值（内存本就空，loop 重拉）
+      removeKey(STORAGE_KEYS.STOCK_PREV_DAY_CACHE)
+      removeKey(STORAGE_KEYS.STOCK_PREV_DAY_DATE)
     }
+    const rtDay = getRealtimeCacheDay()
     const rtDate = loadString(STORAGE_KEYS.STOCK_REALTIME_DATE)
-    if (rtDate === baseDay) {
+    if (rtDate === rtDay) {
       const raw = loadJSON<Record<string, StockQuoteInfo> | null>(STORAGE_KEYS.STOCK_REALTIME_CACHE, null)
       stockRealtimeCache.value = raw ? new Map(Object.entries(raw)) : new Map()
+    } else {
+      // 实时缓存过期（跨 A股交易日）：清 localStorage + 内存，防手机端次日显示昨日 stale 实时值
+      removeKey(STORAGE_KEYS.STOCK_REALTIME_CACHE)
+      removeKey(STORAGE_KEYS.STOCK_REALTIME_DATE)
+      stockRealtimeCache.value = new Map()
     }
+  }
+
+  /** 实时缓存的归属交易日：交易日=今日，非交易日=上一交易日（实时数据属于最近/当前交易日）。 */
+  function getRealtimeCacheDay(): string {
+    return isCnTradingDay() ? getTodayStr() : getPreviousTradingDay()
   }
 
   function persistStockPrevDayCache(): void {
@@ -194,10 +214,12 @@ export const useFundStore = defineStore('fund', () => {
 
   function persistStockRealtimeCache(): void {
     // 同上：Map 需摊成普通对象再落盘，避免序列化成 '{}' 丢失实时缓存。
+    // 日期戳用 A股当前交易日（非 baseDay）：实时数据属于当日市场，baseDay 在北京清晨
+    // 美股未翻篇时不变化，会让昨日 A股实时值被当今日恢复（手机端次日显示异常）。
     const obj: Record<string, StockQuoteInfo> = {}
     for (const [code, info] of stockRealtimeCache.value) obj[code] = info
     saveJSON(STORAGE_KEYS.STOCK_REALTIME_CACHE, obj)
-    saveString(STORAGE_KEYS.STOCK_REALTIME_DATE, getBaseDay())
+    saveString(STORAGE_KEYS.STOCK_REALTIME_DATE, getRealtimeCacheDay())
   }
 
   /** 恢复盘中分时点缓存（仅当日写入有效，跨日丢弃重生成，避免首屏缩略图空白） */
@@ -681,6 +703,22 @@ export const useFundStore = defineStore('fund', () => {
 
   // ===== 跨日清理 =====
 
+  /** 清空已过期的实时缓存（手机端后台冻结→次日恢复用）。
+   *  手机端切后台时定时器冻结，回到前台时若 A股交易日已变（跨日），
+   *  内存 stockRealtimeCache 仍带昨日 stale 值，loop 重拉前会显示异常。
+   *  本方法：比对"上次落盘的实时缓存交易日"与"当前 A股交易日"，不一致则清空内存实时缓存
+   *  （+清 localStorage），让 service loop 回到前台后全量重拉。仅在跨日时清，同日不清（避免抹掉当日数据）。
+   *  幂等：已空时无副作用。 */
+  function expireStaleRealtimeCache(): void {
+    const rtDay = getRealtimeCacheDay()
+    const stored = loadString(STORAGE_KEYS.STOCK_REALTIME_DATE)
+    if (stored && stored !== rtDay) {
+      stockRealtimeCache.value = new Map()
+      removeKey(STORAGE_KEYS.STOCK_REALTIME_CACHE)
+      removeKey(STORAGE_KEYS.STOCK_REALTIME_DATE)
+    }
+  }
+
   /** 跨日清理：清空双全局缓存+持仓缓存（让 loop 全量重拉），重置 lastRefreshDate */
   function clearCrossDayCaches(): void {
     stockPrevDayCache.value = new Map()
@@ -834,7 +872,7 @@ export const useFundStore = defineStore('fund', () => {
     // 收集（供 service）
     collectMissingStocks, collectOverseasAll, collectAHkAll,
     // 跨日
-    clearCrossDayCaches, clearCacheDataInMemory,
+    clearCrossDayCaches, clearCacheDataInMemory, expireStaleRealtimeCache,
     // UI 方法
     setSort, updateIntradayPoints, fetchIntradayHistory, seedFromCache, saveColumnConfig, restoreColumnConfig,
     fetchValuation, refreshAllValuations,
