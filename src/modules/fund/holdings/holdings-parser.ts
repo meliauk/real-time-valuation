@@ -15,13 +15,70 @@
 
 import type { HoldingDetailItem } from '@/modules/fund/fund-types'
 
-/** 从 HTML 中提取报告期日期（优先匹配"报告期/截止日期"后的日期，否则取首个日期） */
+/** 从 HTML 中提取报告期日期（优先匹配"报告期/截止日期/截止至"后的日期，否则取首个日期） */
 export function extractHoldingsReportDate(html: string): string | null {
   if (!html) return null
-  const m1 = html.match(/(报告期|截止日期)[^0-9]{0,20}(\d{4}-\d{2}-\d{2})/)
+  // [\s\S] 跨标签匹配（截止至后可能有 <font> 等标签）
+  const m1 = html.match(/(报告期|截止日期|截止至)[\s\S]{0,40}?(\d{4}-\d{2}-\d{2})/)
   if (m1) return m1[2]
   const m2 = html.match(/(\d{4}-\d{2}-\d{2})/)
   return m2 ? m2[1] : null
+}
+
+/** 一个季度报告块（最新一期）解析结果 */
+export interface ReportBlock {
+  /** 该季度的表格 HTML（含 <table>...<tbody>...</table>） */
+  html: string
+  /** 报告期截止日期（如 2026-06-30），无则空串 */
+  reportDate: string
+  /** 季度标题（如"2026年2季度股票投资明细"），无则空串 */
+  title: string
+}
+
+/**
+ * 从 apidata.content 切出最新一期（按截止日期降序首块）的季度报告块。
+ *
+ * content 结构：多个 <div class='box'>，每个含一个 <h4>（标题+截止日期）和一个 <table>。
+ * 按"截止至：YYYY-MM-DD"日期降序取首块（最新报告期）。
+ * @returns 最新块（html 含其 <table>，供 parseHoldingsHtml 解析）；无块返回 null
+ */
+export function extractLatestReportBlock(content: string): ReportBlock | null {
+  if (!content || content.includes('暂无数据')) return null
+  // 按 <div class='box'> 切块（每个 box 是一个季度）
+  // 容错：content 顶层是 <div class='box'><div class='boxitem'>...<h4>...<table>...
+  const blocks: { html: string; date: string; title: string }[] = []
+  // 用 <h4 class='t'> 作为每块起点切分（标题含截止日期）
+  const parts = content.split(/<h4[^>]*class=['"]t['"]/i)
+  for (let i = 1; i < parts.length; i++) {
+    // 该块从 h4 到下一个 h4（或 content 末尾）。split 后 parts[i] 是 h4 之后到下一分隔点的内容。
+    const blockHtml = parts[i]
+    // 截止日期：<font class='px12'>2026-06-30</font> 或 截止至：2026-06-30
+    // 用 [\s\S] 跨标签匹配（截止至后可能有 <font> 等标签，[^0-9]* 匹配不了跨标签）
+    const dateM = blockHtml.match(/截止至[\s\S]{0,80}?(\d{4}-\d{2}-\d{2})/)
+    const date = dateM ? dateM[1] : ''
+    // 标题：<a ...>易方达消费行业股票</a>&nbsp;&nbsp;2026年2季度股票投资明细
+    const titleM = blockHtml.match(/(\d{4}年[一二三四1234]季度股票投资明细)/)
+    const title = titleM ? titleM[1] : ''
+    // 该块的 table（从块开头到 </table>，取第一个 table 的完整内容）
+    const tableMatch = blockHtml.match(/<table[\s\S]*?<\/table>/i)
+    const tableHtml = tableMatch ? tableMatch[0] : ''
+    if (tableHtml) blocks.push({ html: tableHtml, date, title })
+  }
+  if (blocks.length === 0) {
+    // 兜底：无 h4 分块（结构异常），取整个 content 的第一个 table
+    const tableMatch = content.match(/<table[\s\S]*?<\/table>/i)
+    if (tableMatch) return { html: tableMatch[0], reportDate: extractHoldingsReportDate(content) ?? '', title: '' }
+    return null
+  }
+  // 按截止日期降序取最新一期（有日期的优先，无日期的排后）
+  blocks.sort((a, b) => {
+    if (a.date && b.date) return b.date.localeCompare(a.date)
+    if (a.date) return -1
+    if (b.date) return 1
+    return 0
+  })
+  const latest = blocks[0]
+  return { html: latest.html, reportDate: latest.date || extractHoldingsReportDate(latest.html) || '', title: latest.title }
 }
 
 /**
