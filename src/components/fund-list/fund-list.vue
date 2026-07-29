@@ -122,7 +122,8 @@
                       <span v-else class="ctrl-holding text-muted">--</span>
                       <span class="ctrl-date">{{ formatDate(row.valuationTime) }}</span>
                     </div>
-                    <!-- 实时涨跌幅 + 已更新徽章：实时在左、已更新在右 -->
+                    <!-- 实时涨跌幅 + 已更新徽章：实时在左、已更新在右。
+                         「持仓预测」「实时推算」依赖完整持仓加权，占比拿不到故数据不准，先隐藏胶囊（功能不删）。 -->
                     <div v-if="row.isUpdated || (row.realtimeGszzl != null && isRealtimeBadgeVisible(row.realtimeSource))" class="ctrl-status-row">
                       <span v-if="row.realtimeGszzl != null && isRealtimeBadgeVisible(row.realtimeSource)" :class="['ctrl-realtime', row.realtimeGszzl > 0 ? 'rt-rise' : row.realtimeGszzl < 0 ? 'rt-fall' : 'rt-flat', row.realtimePlaceholder && 'rt-placeholder']">
                         <span class="rt-dot"></span>
@@ -396,9 +397,8 @@ function formatDate(timeStr: string): string {
 }
 
 /** 实时胶囊是否可见。
- *  「持仓预测」「实时推算」依赖完整持仓加权，东财持仓接口受限后取不到完整持仓，
- *  数据不准则隐藏胶囊（功能不删，仅 UI 隐藏，后期持仓恢复再开放）。
- *  其它源（如官方实时/休盘）正常显示。 */
+ *  「持仓预测」「实时推算」依赖完整持仓加权，占比拿不到故数据不准，先隐藏胶囊（功能不删，后期恢复占比再开放）。
+ *  其它源（官方实时/休盘）正常显示。 */
 const HIDDEN_RT_SOURCES = new Set(['持仓预测', '实时推算'])
 function isRealtimeBadgeVisible(source: string | undefined): boolean {
   return !source || !HIDDEN_RT_SOURCES.has(source)
