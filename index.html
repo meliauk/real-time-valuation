@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="description" content="基攻宝 - 基金实时估值系统（多 Worker 并发版）" />
+    <!-- 入口 HTML 不缓存：GitHub Pages 不能设 HTTP 响应头，靠 meta 防止老用户读到旧 index.html
+         （JS/CSS 产物带 hash 天然防缓存，唯独 index.html 入口本身需禁缓存，否则更新后旧版残留、
+         需 Ctrl+Shift+R 强刷才更新）。 -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <!-- 浏览器标签 favicon：与 app 首页 header logo 同一 SVG（public/favicon.svg），
+         Vite 构建时 href 自动加 base 前缀（/real-time-valuation/favicon.svg）。
+         apple-touch-icon 供 iOS 添加到主屏图标。 -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
     <title>基攻宝</title>
     <script>
       // 防止主题闪烁（FOUC）：渲染前读取用户偏好设 class，默认深色
