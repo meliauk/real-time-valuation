@@ -39,7 +39,11 @@
     font-size: var(--font-md);
     line-height: 1.6;
     min-height: 100vh;
+    min-height: 100dvh;
     overflow: hidden;
+    /* 与 html 的 overscroll-behavior:none 双保险，阻断 body 自身弹性滚动
+       把文档顶出可视区（iOS Safari 对 html 上设 overscroll 支持不稳定）。 */
+    overscroll-behavior: none;
     transition: background-color var(--transition-normal), color var(--transition-normal);
   }
 
