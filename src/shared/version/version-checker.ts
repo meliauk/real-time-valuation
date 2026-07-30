@@ -45,7 +45,12 @@ async function fetchRemoteVersion(): Promise<string> {
   }
 }
 
-/** 比对版本，不一致则强制刷新（仅一次） */
+/** 比对版本，不一致则强制刷新绕过浏览器缓存（专治 Chrome 对 index.html 的磁盘缓存）。
+ *  ⚠️ 旧版用 location.reload()：Chrome 在 max-age 内对 reload 仍命中本地磁盘缓存，
+ *  导致「检测到新版 → reload → 又读缓存旧 index.html → 还是旧版」死循环，
+ *  表现为普通刷新回旧版（硬刷新 Ctrl+Shift+R 才正常）。其他浏览器缓存策略不同故正常。
+ *  解法：给当前 URL 追加时间戳查询串后 location.replace —— 不同 URL 强制 Chrome 回源取新 index.html，
+ *  新 index.html 引用新 hash JS → 新版 version-checker 比对一致不再刷新。 */
 async function checkVersion(): Promise<void> {
   if (reloadTriggered) return
   const remote = await fetchRemoteVersion()
@@ -53,9 +58,20 @@ async function checkVersion(): Promise<void> {
   const current = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : ''
   if (current && remote !== current) {
     reloadTriggered = true
-    // 强制刷新绕过缓存（history.go(0) 部分浏览器仍读缓存，用 location.reload() 更可靠）
-    window.location.reload()
+    reloadBypassCache()
   }
+}
+
+/** 刷新并绕过 index.html 缓存：用时间戳查询串让 Chrome 把请求当新 URL 回源。
+ *  优先 replace（不污染 history 栈）；replace 不可用时退 reload。 */
+function reloadBypassCache(): void {
+  try {
+    const u = new URL(window.location.href)
+    u.searchParams.set('_v', String(Date.now()))
+    window.location.replace(u.toString())
+    return
+  } catch { /* URL 构造异常，退回普通 reload */ }
+  window.location.reload()
 }
 
 /** 启动版本检查：启动后查一次 + 切回前台查 + 定时轮询。幂等可多次调用。 */
