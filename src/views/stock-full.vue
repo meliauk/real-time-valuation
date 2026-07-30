@@ -1101,6 +1101,14 @@ function fmtTurnover(v: number | undefined): string {
     font-size: var(--font-md);
   }
 
+  /* 手机端自选股卡片单列整行：两列时每卡仅~150px，
+     名称+代码+价格+涨跌+7项扩展统计严重挤压截断。
+     单列后卡片宽度≈视口宽，所有字段完整可见（用户要求"每行一个"）。
+     桌面端(≥768px)仍保持两列不变。 */
+  .watchlist-grid {
+    grid-template-columns: 1fr;
+  }
+
   .search-box.expanded .stock-input-inline {
     width: 120px;
   }
