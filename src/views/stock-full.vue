@@ -56,8 +56,22 @@
     <!-- 自选关注：直接显示卡片 -->
     <section class="watchlist-panel">
       <span v-if="addError" class="add-error">{{ addError }}</span>
-      <div v-if="stockStore.loading && stockStore.watchlist.length === 0" class="loading-text">
-        加载中...
+      <!-- 骨架屏：行情首屏拉取时用占位卡片替代纯文字「加载中」，体感「页已就位、数据在填」。
+           复用 .animate-shimmer 闪光，结构与 .watchlist-card 等高，数据到位即被真实卡片替换。 -->
+      <div v-if="stockStore.loading && stockStore.watchlist.length === 0" class="watchlist-grid">
+        <div v-for="i in 4" :key="i" class="watchlist-card skel-card">
+          <div class="card-main">
+            <div class="card-row"><span class="skel-line skel-name"></span></div>
+            <div class="card-row"><span class="skel-line skel-code"></span></div>
+            <div class="card-price-row"><span class="skel-line skel-price"></span></div>
+          </div>
+          <div class="card-stats">
+            <div v-for="s in 4" :key="s" class="stat-cell">
+              <span class="skel-line skel-stat-label"></span>
+              <span class="skel-line skel-stat-value"></span>
+            </div>
+          </div>
+        </div>
       </div>
       <div v-else-if="stockStore.watchlist.length === 0 && !showAddStock" class="empty-text">
         点击 + 添加自选股票
@@ -699,6 +713,30 @@ function fmtTurnover(v: number | undefined): string {
   color: var(--text-muted);
   text-align: center;
   padding: var(--spacing-lg);
+}
+
+/* ===== 骨架屏（行情首屏占位）===== */
+.skel-card {
+  /* 复用 watchlist-card 尺寸，去掉 hover/边框色，仅承载 shimmer 占位条 */
+  cursor: default;
+  pointer-events: none;
+}
+.skel-line {
+  display: block;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  /* 父级 watchlist-card 已有 padding；shimmer 闪光叠在背景上 */
+  background-image: linear-gradient(90deg, var(--bg-card) 0%, var(--bg-card-hover) 50%, var(--bg-card) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+.skel-name { width: 46%; height: 14px; }
+.skel-code { width: 30%; height: 12px; margin-top: 6px; }
+.skel-price { width: 38%; height: 18px; margin-top: 8px; }
+.skel-stat-label { width: 60%; height: 10px; }
+.skel-stat-value { width: 80%; height: 12px; margin-top: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  .skel-line { animation: none; }
 }
 
 /* ===== 自选关注 ===== */
