@@ -422,6 +422,63 @@ export const useHoldingStore = defineStore('holding', () => {
     if (changed) immediatePersistHoldings()
   }
 
+  // ===== 全量重算自愈（A+B3 兜底） =====
+  /** 用历史净值全量重算各持仓累计金额，补齐所有错过的交易日收益。
+   *  启动/跨日重建/从后台恢复可见性时调用一次——增量推进（syncYesterdayAmounts/replayGappedHoldings）
+   *  只在前台跑，错过的交易日无法补齐，本方法用 pingzhongdata 净值序列从 holdingDate 起全量累乘，
+   *  一次性把 yesterdayAmount/lastConfirmedDate/confirmedBaseAmount 校准到「最新已确认净值」口径。
+   *
+   *  口径与 replayGappedHoldings 一致（amount × (1 + rate/100)），不改变展示规则：
+   *    - 今日收益仍由 calcFundTodayProfit 独立计算（基于 confirmedBaseAmount 快照）；
+   *    - 本方法只校准 yesterdayAmount 等「已确认累计」字段，不碰今日估算口径。
+   *  容错：单只取数失败/序列不足 → 跳过该基金（保留原值，交增量推进兜底），不影响其它基金。 */
+  async function recalibrateHoldingsFromNav(): Promise<void> {
+    const active = activeHoldings.value
+    if (active.length === 0) return
+    // 按基金分组，每只基金只拉一次净值序列
+    const byFund = new Map<string, typeof active>()
+    for (const h of active) {
+      const arr = byFund.get(h.fundCode) ?? []
+      arr.push(h)
+      byFund.set(h.fundCode, arr)
+    }
+    const { computeAccumulatedAmountFromRatesWithDate } = await import(
+      '@/modules/fund/valuation/accumulated-amount'
+    )
+    let changed = false
+    // 按基金分组后逐笔重算：同一基金多笔会各自拉一次 pingzhongdata.js。
+    // 该 js 带 rt 时间戳，同一轮并发请求命中浏览器/CDN 缓存，重复拉取开销可接受；
+    // 重算仅在启动/跨日/恢复可见性时触发，非高频路径，正确性优先于省流。
+    await Promise.all(Array.from(byFund.entries()).map(async ([, list]) => {
+      try {
+        const results = await Promise.all(list.map(async (h) => {
+          const principal = h.initialAmount ?? roundMoney(h.shares * h.costPrice)
+          if (principal <= 0) return null
+          return computeAccumulatedAmountFromRatesWithDate(h.fundCode, h.holdingDate, principal)
+        }))
+        list.forEach((h, i) => {
+          const r = results[i]
+          if (!r || !Number.isFinite(r.amount) || r.amount <= 0) return
+          // 取数失败回退 amount=initialAmount：若等于本金且原 yesterdayAmount 已有累计值，不覆盖（避免把已有累计抹掉）
+          const principal = h.initialAmount ?? roundMoney(h.shares * h.costPrice)
+          if (r.amount === principal && h.yesterdayAmount != null && h.yesterdayAmount > 0 && h.yesterdayAmount !== principal) {
+            return
+          }
+          if (r.lastConfirmedDate && r.lastConfirmedDate > (h.lastConfirmedDate ?? '')) {
+            h.lastConfirmedDate = r.lastConfirmedDate
+            changed = true
+          }
+          if (Math.abs((h.yesterdayAmount ?? 0) - r.amount) > 0.005) {
+            h.confirmedBaseAmount = h.yesterdayAmount ?? r.amount
+            h.yesterdayAmount = r.amount
+            changed = true
+          }
+        })
+      } catch { /* 单只失败不影响其它，静默 */ }
+    }))
+    if (changed) immediatePersistHoldings()
+  }
+
   /** 从 lsjz 行取涨跌幅：优先 growth，缺失用前一行净值自算 */
   function resolveGrowth(row: { growth: number | null; nav: number }, prevRow: { nav: number } | undefined): number {
     if (Number.isFinite(row.growth)) return displayRateSafe(row.growth)
@@ -510,7 +567,7 @@ export const useHoldingStore = defineStore('holding', () => {
     addHoldingByAmount, addHoldingDirect, reduceHolding, editHolding, settleHolding,
     settleAllByFund, removeHoldingsByFund, clearAllHoldings,
     createPendingAdd, createPendingReduce, cancelPendingAction, executePendingActions,
-    syncYesterdayAmounts, replayGappedHoldings,
+    syncYesterdayAmounts, replayGappedHoldings, recalibrateHoldingsFromNav,
     logAction, getActionsByFund,
     restoreHoldings, restoreActions, restorePendingActions, persistHoldings, persistPendingActions, flushAllPersist,
   }
