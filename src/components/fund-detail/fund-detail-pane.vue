@@ -216,7 +216,7 @@
             </div>
             <div class="holdings-table">
               <div class="holdings-thead">
-                <span>#</span><span>股票</span><span>涨跌</span>
+                <span>#</span><span>股票</span><span>占比</span><span>涨跌</span>
               </div>
               <div v-for="(stock, idx) in displayHoldings.holdings" :key="stock.stockCode" class="holdings-row">
                 <span class="h-idx">{{ idx + 1 }}</span>
@@ -224,6 +224,7 @@
                   <span class="h-name">{{ stock.stockName || stock.stockCode }}</span>
                   <span class="h-code font-number">{{ stock.stockCode }}</span>
                 </div>
+                <span class="h-ratio font-number">{{ stock.ratio > 0 ? stock.ratio.toFixed(2) + '%' : '--' }}</span>
                 <span v-if="stockChange(stock) != null" class="h-rate-wrap">
                   <span :class="['h-rate font-number', stockChangeClass(stock)]">
                     {{ stockChange(stock)! > 0 ? '+' : '' }}{{ (stockChange(stock) as number).toFixed(2) }}%
@@ -235,13 +236,14 @@
           </template>
           <template v-else-if="fundInfo && fundInfo.topHoldings && fundInfo.topHoldings.length > 0">
             <div class="holdings-table">
-              <div class="holdings-thead"><span>#</span><span>股票</span><span></span></div>
+              <div class="holdings-thead"><span>#</span><span>股票</span><span>占比</span><span>涨跌</span></div>
               <div v-for="(stock, idx) in fundInfo.topHoldings" :key="stock.stockCode" class="holdings-row">
                 <span class="h-idx">{{ idx + 1 }}</span>
                 <div class="h-name-wrap">
                   <span class="h-name">{{ stock.stockName }}</span>
                   <span class="h-code font-number">{{ stock.stockCode }}</span>
                 </div>
+                <span class="h-ratio font-number">{{ stock.ratio > 0 ? stock.ratio.toFixed(2) + '%' : '--' }}</span>
                 <span class="h-rate text-muted">--</span>
               </div>
             </div>
@@ -337,8 +339,17 @@ const confirmTypeText = computed(() => confirmTypeLabel(getConfirmType(delayDays
 const realtimeGszzl = computed(() => fundStore.getValuation(fundCode.value)?.realtimeGszzl ?? null)
 const realtimeUpdatedAt = computed(() => fundStore.getValuation(fundCode.value)?.realtimeUpdatedAt ?? '')
 const realtimeSource = computed(() => fundStore.getValuation(fundCode.value)?.realtimeSource ?? '')
-/** 「持仓预测」「实时推算」依赖完整持仓加权，占比拿不到故隐藏胶囊（功能不删，后期恢复占比再开放） */
-const isHiddenRtSource = computed(() => realtimeSource.value === '持仓预测' || realtimeSource.value === '实时推算')
+/** 实时预测胶囊（持仓预测/实时推算）展示开关：占比有效（前十大含占比）时显示，否则隐藏。
+ *  加权 computeEstimatedGszzlFromPrevDay 用 ratio×changeRate，占比全 0 时加权恒 0 无意义故隐藏。
+ *  仅对「持仓预测/实时推算」两类来源生效——它们靠持仓占比加权；其他来源（如 fundgz 确认值）不受此约束。 */
+const hasHoldingsRatio = computed(() => {
+  const hs = displayHoldings.value?.holdings
+  return !!hs && hs.some(h => (h.ratio ?? 0) > 0)
+})
+const isHiddenRtSource = computed(() => {
+  if (realtimeSource.value !== '持仓预测' && realtimeSource.value !== '实时推算') return false
+  return !hasHoldingsRatio.value
+})
 
 const rateColor = computed(() => {
   if (currentGszzl.value > 0) return 'text-rise'
@@ -966,7 +977,7 @@ watch(fundCode, (code) => {
 }
 .holdings-thead {
   display: grid;
-  grid-template-columns: 20px 1fr 64px;
+  grid-template-columns: 20px 1fr 48px 60px;
   padding: 5px 10px;
   background: var(--bg-surface);
   font-size: 10px;
@@ -975,9 +986,10 @@ watch(fundCode, (code) => {
   align-items: center;
 }
 .holdings-thead span:nth-child(3) { text-align: right; }
+.holdings-thead span:nth-child(4) { text-align: right; }
 .holdings-row {
   display: grid;
-  grid-template-columns: 20px 1fr 64px;
+  grid-template-columns: 20px 1fr 48px 60px;
   padding: 7px 10px;
   gap: 8px;
   align-items: center;
