@@ -681,27 +681,35 @@ async function loadData(code: string): Promise<void> {
   })()
 
   const holdingsTask = (async () => {
-    // 占比数据纯前端拿不到（F10 script+代理均失败），不再走 F10 全量取数（避免数十秒代理超时卡顿）。
-    // 持仓直接由 loadEstimation 走 pingzhong 前十大（有代码、名称由腾讯报价回填）。
-    holdingsLoading.value = false
-
+    // 持仓由 loadEstimation 走前十大（移动端 API 优先含占比，回退 pingzhong 仅代码）。
+    // ⚠️ holdingsLoading 必须等 loadEstimation 真正完成后才置 false：
+    //   旧版在开头就置 false，导致切基金时旧持仓（estimated 未清）在 loading 解除后立即显示 → 串台。
+    //   现配合 loadEstimation 开头清 estimated，切基金时先显"加载持仓数据..."直到新数据就绪/确认无持仓。
     if (fundCode.value !== code) return
 
-    // 等 fullDataTask 完成，复用其已加载的 pingzhongdata（stockCodesNew），
-    // 传给 loadEstimation 避免二次 script 注入。getFundFullData 通常 <1s。
-    const pingzhongRaw = await fullDataTask
+    try {
+      // 等 fullDataTask 完成，复用其已加载的 pingzhongdata（stockCodesNew），
+      // 传给 loadEstimation 避免二次 script 注入。getFundFullData 通常 <1s。
+      const pingzhongRaw = await fullDataTask
 
-    if (delayDays.value === 2) {
-      fundStore.startStockPreload?.()
-      await loadEstimation(pingzhongRaw)
-    } else {
-      // T+1：loadEstimation 走 pingzhong 前十大填本地 ref → displayHoldings 显示。
-      //   今日涨跌幅恒由 fundgz 驱动，涨跌由 store loop 全局预加载（国内股东财K线），
-      //   详情页 composable watch 全局缓存增量显示。
-      fundStore.startStockPreload?.()
-      await loadEstimation(pingzhongRaw)
-      refreshFromCache() // 持仓就绪后主动从全局缓存提取一次（缓存已有数据时立即显示）
-      fundStore.startRealtimeEstimate?.()
+      if (fundCode.value !== code) return  // 等待期间又切走，丢弃本次结果
+
+      if (delayDays.value === 2) {
+        fundStore.startStockPreload?.()
+        await loadEstimation(pingzhongRaw)
+      } else {
+        // T+1：loadEstimation 走 pingzhong 前十大填本地 ref → displayHoldings 显示。
+        //   今日涨跌幅恒由 fundgz 驱动，涨跌由 store loop 全局预加载（国内股东财K线），
+        //   详情页 composable watch 全局缓存增量显示。
+        fundStore.startStockPreload?.()
+        await loadEstimation(pingzhongRaw)
+        refreshFromCache() // 持仓就绪后主动从全局缓存提取一次（缓存已有数据时立即显示）
+        fundStore.startRealtimeEstimate?.()
+      }
+    } finally {
+      // 仅当仍是当前基金时解除 loading：切走后由新基金自己的 loadData 管理 loading，
+      // 避免旧请求的 finally 把新基金的 loading 提前关掉（竞态保护）。
+      if (fundCode.value === code) holdingsLoading.value = false
     }
   })()
 
