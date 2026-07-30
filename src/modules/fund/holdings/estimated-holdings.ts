@@ -17,6 +17,7 @@ import type { EstimatedHoldings, EstimatedHoldingItem, FundAllHoldings, Optimiza
 import type { StockQuoteInfo } from '@/shared/types/common-types'
 import { ESTIMATE_CONFIG } from '@/config/constants'
 import { isValidFundCode } from '@/shared/utils/validation'
+import { fetchTop10FromMobileApi } from './f10-mobile-fetch'
 import { fetchTop10FromPingzhong, type PingzhongPreloaded } from './pingzhong-holdings-fetch'
 import { optimizeHoldings } from './holdings-optimizer'
 import { fetchLatestNavChange } from '../valuation/nav-fetch'
@@ -48,16 +49,23 @@ export async function fetchEstimatedHoldings(
 
   const curYear = year || String(new Date().getFullYear())
 
-  // 占比数据纯前端无法获取（F10 script 注入被 Referer 拒、公共代理全超时），推算全量无意义。
-  // 直接走前十大（pingzhong stockCodesNew：有代码，名称由腾讯报价回填），跳过 F10 全量轮询
-  // 避免 QUARTER_YEAR_OFFSET_MAX 年 × 4代理超时导致首屏数十秒卡顿。
-  let top10: FundAllHoldings | null = await fetchTop10FromPingzhong(fundCode, preloaded)
+  // 占比数据：优先东财移动端 API（FundMNInverstPosition，浏览器 fetch 可直连，含代码+名称+占比），
+  // 失败回退 pingzhong stockCodesNew（仅代码、名称由腾讯报价回填、占比 0）。
+  // 有了占比即可做持仓股票加权推算实时预测（computeEstimatedGszzlFromPrevDay 用 ratio×changeRate）。
+  let top10: FundAllHoldings | null = await fetchTop10FromMobileApi(fundCode)
+  let fallbackUsed = false
+  if (!top10 || top10.holdings.length === 0) {
+    top10 = await fetchTop10FromPingzhong(fundCode, preloaded)
+    fallbackUsed = true
+  }
   if (top10 && top10.holdings.length > 0) {
+    // 是否有真实占比（移动端 API 成功）；pingzhong 兜底时 ratio=0，描述如实标注"无占比"
+    const hasRatio = !fallbackUsed && top10.holdings.some(h => h.ratio > 0)
     return {
       fundCode,
       quarterReportDate: top10.reportDate,
       annualReportDate: '',
-      description: '无完整报告，仅显示前十大重仓',
+      description: hasRatio ? '前十大重仓及占比' : '前十大重仓（无占比，无法加权推算）',
       holdings: top10.holdings.map(h => ({ ...h, isEstimated: false })),
       optimizationMeta: { method: 'proportional-scaling', navDaysUsed: 0, stockCoverage: 0 },
     }
