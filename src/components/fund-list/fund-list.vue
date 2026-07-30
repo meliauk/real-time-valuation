@@ -531,6 +531,9 @@ function handlePopupClear(): void {
 
 function onTouchStart(e: TouchEvent, fundCode: string): void {
   const t = e.touches[0]
+  // 即时清一次已有选择：配合 CSS user-select:none，兜底防止 touchstart 瞬间残留的选区
+  // 被浏览器用于触发系统 copy/查询菜单（passive 监听无法 preventDefault，靠清选区 + CSS 双保险）。
+  window.getSelection()?.removeAllRanges()
   startLongPress(fundCode, t.clientX, t.clientY)
 }
 function onTouchMove(e: TouchEvent): void {
@@ -686,6 +689,12 @@ onUnmounted(() => {
 
 .fund-row { cursor: pointer; transition: background var(--transition-fast); }
 .fund-row:hover td { background: var(--bg-card-hover) !important; }
+/* 常驻禁用文本选择 + 系统长按 callout 菜单（copy/查询）：
+   旧实现仅在 .longpress-active（弹窗已弹出后）才禁用，但浏览器默认的长按文本选择
+   在 600ms 计时器触发前就已抢先弹出系统菜单，passive touchstart 无法 preventDefault 拦不住。
+   改为行级常驻禁用，让浏览器根本不进入「选中文本」状态，从源头杜绝 copy/查询菜单。 */
+.fund-row,
+.fund-row td { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .fund-row.longpress-active { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 
 /* ctrl 列表头内控件行 */
@@ -914,6 +923,8 @@ onUnmounted(() => {
 }
 .fund-card:hover { border-color: rgba(99,102,241,0.3); box-shadow: 0 4px 20px rgba(99,102,241,0.08); }
 .fund-card:hover::before { opacity: 1; }
+/* 常驻禁用文本选择 + 系统长按 callout（同 .fund-row，卡片视图同源问题） */
+.fund-card { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .fund-card.longpress-active { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 
 .card-top { display: flex; align-items: center; gap: var(--spacing-sm); }
