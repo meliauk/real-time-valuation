@@ -100,7 +100,6 @@
 //   store API：refresh/news(过滤后)/rawNews/blacklist/addBlacklist/restoreState/loadMore。
 //   已读记录由本页自管（localStorage），store 也持有 readTitles 供设置页统计。
 import { ref, onMounted, onUnmounted, onActivated, onDeactivated, reactive, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { useNewsStore } from '@/modules/news/news-store'
 import { useSettingsStore } from '@/modules/settings/settings-store'
 import { STORAGE_KEYS } from '@/config/constants'
@@ -110,7 +109,6 @@ import { fetchMoreNews } from '@/modules/news/services/news-service'
 
 defineOptions({ name: 'NewsFull' })
 
-const router = useRouter()
 const newsStore = useNewsStore()
 const settingsStore = useSettingsStore()
 
@@ -215,10 +213,12 @@ async function loadMoreNews(): Promise<void> {
 
 function openNews(item: NewsItem): void {
   markAsRead(item.title)
-  router.push({
-    path: '/news/detail',
-    query: { title: item.title, source: item.source, url: item.url },
-  })
+  const u = item.url
+  if (!u) return
+  // 直接打开网页版：跳过 /news/detail 中间页（GitHub Pages 线上 window.open 常被内嵌 webview 拦截，
+  // 且旧流程需点两次）。window.open 失败时退回当前页跳转，保证一定能打开原网页。
+  const win = window.open(u, '_blank', 'noopener,noreferrer')
+  if (!win) window.location.href = u
 }
 
 /** 资讯来源颜色哈希 */
