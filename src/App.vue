@@ -38,8 +38,8 @@
       @update:visible="(v) => { if (!v) closeStartupNotice() }"
       @close="closeStartupNotice"
     >
-      <p>东方财富（国内数据源）近期进一步限制了数据开放，目前无法直接从接口获取完整报告，导致无法自动推算基金的完整持仓。</p>
-      <p>对于<strong>海外基金</strong>，仍可参考「十大持仓」股票的涨跌幅，作为加仓操作的参考依据。</p>
+      <p>东方财富近期<strong>收紧了数据开放</strong>，已无法获取并推算基金的完整持仓。</p>
+      <p>受此影响，目前<strong>仅展示前十大持仓股票及其占比</strong>；<strong>实时数据仅基于前十大持仓</strong>进行加权计算，不代表基金整体实时表现。</p>
       <p class="notice-thanks">感谢理解与支持。</p>
     </NoticeModal>
   </div>
