@@ -1,6 +1,6 @@
 <!--
   根组件
-  路由出口（keep-alive 缓存3页）+ 底部导航 + 跑马灯边框。
+  路由出口（keep-alive 缓存6页 + 路由淡入过渡）+ 底部导航 + 跑马灯边框。
   全屏视图（资讯详情/基金详情）隐藏底部导航与跑马灯。
   监听页面可见性变化触发跨日检测；监听设置开关 reduceMotion/glassEffect。
 -->
@@ -8,9 +8,11 @@
   <div id="app" class="app-layout">
     <main class="app-main">
       <router-view v-slot="{ Component }">
-        <keep-alive :max="3">
-          <component :is="Component" />
-        </keep-alive>
+        <transition name="route-fade" mode="default">
+          <keep-alive :max="6">
+            <component :is="Component" />
+          </keep-alive>
+        </transition>
       </router-view>
     </main>
     <BottomNav v-if="!isFullscreenView" />
