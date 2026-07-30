@@ -130,7 +130,7 @@
                         <span class="rt-value">{{ row.realtimeGszzl > 0 ? '+' : '' }}{{ row.realtimeGszzl.toFixed(2) }}%</span>
                         <span class="rt-label">{{ row.realtimeSource || '实时' }}</span>
                       </span>
-                      <span v-if="row.isUpdated" class="ctrl-updated">已更新</span>
+                      <span v-if="row.isUpdated" class="ctrl-updated">更新</span>
                     </div>
                   </div>
                 </td>
