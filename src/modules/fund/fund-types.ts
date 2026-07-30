@@ -136,6 +136,9 @@ export interface EstimatedHoldings {
   stockQuoteMap?: Map<string, StockQuoteInfo>
   /** 后台 Yahoo 涨跌填充完成的信号（resolve 后 stockQuoteMap 完整）；无后台任务时 undefined */
   stockQuotesReady?: Promise<void>
+  /** 后台 pingzhong 市场补全完成的信号（resolve 后 holdings 的 emMarketCode 已被权威值覆盖，需写回缓存+重算）。
+   *  仅首页 bootstrap 异步补全路径设此字段；详情页同步补全后无需（已就绪）；无补全时 undefined。 */
+  holdingsEnrichedReady?: Promise<void>
 }
 
 /** 年度持仓查询结果 - 按年份查各季度报告 */
