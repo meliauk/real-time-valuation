@@ -135,7 +135,8 @@ html.reduce-motion .transition-all,
 html.reduce-motion .glass-card,
 html.reduce-motion .btn-base,
 html.reduce-motion .input-base,
-html.reduce-motion .el-button {
+html.reduce-motion .el-button,
+html.reduce-motion .route-fade-enter-active {
   animation-duration: 0.001ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
@@ -188,4 +189,21 @@ html.reduce-motion .marquee-corner {
     var(--bg-card) 100%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ===== 路由切换淡入 =====
+   仅 opacity 淡入（不动 transform 避免重排）：
+   - enter：新页 120ms 淡入，遮盖大页首次渲染的白屏/硬切；
+   - leave 瞬时：旧页立即消失，不做淡出——若新旧同存会撑高 flex 布局导致跳动，
+     故 leave 不透明、不占时长，新旧不重叠渲染，避免布局抖动。
+   reduce-motion 下整组禁用（见 reduce-motion 块，transition-duration 被压到 0.001ms）。 */
+.route-fade-enter-active {
+  transition: opacity 0.12s ease-out;
+}
+.route-fade-enter-from {
+  opacity: 0;
+}
+.route-fade-leave-active {
+  /* 瞬时离场：不留时长，旧页立即卸载，新页淡入，无布局挤压 */
+  transition: none;
 }
