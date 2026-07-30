@@ -4,23 +4,37 @@
  * 判定基金是否为 T+2 延迟确认类型，用于估值合并时决定净值滞后天数
  * （delayDays=1 国内基金 / 2 T+2 基金）。
  *
- * 唯一规则：只看基金目录的 fundType 字段。
- *   - fundType 含「海外 / QDII / FOF / 商品」任一 → T+2
- *   - 其余（含 Reits、空类型）→ T+1
+ * 规则：fundType 精确等于下列 T+2 白名单其一 → T+2，其余全部 T+1。
+ *   - QDII 各细分（QDII-纯债/混合偏股/混合债/混合灵活/商品/混合平衡/REITs/FOF）
+ *   - FOF 各细分（FOF-稳健型/进取型/均衡型）
+ *   - 商品
  *
- * 不再使用数字代码段、基金名称兜底、持仓推算等其他方案。fundType 取不到
- * （空串）时按 T+1 兜底。类型字符串本身的获取（getFundType）在 catalog/
- * fund-code-catalog.ts（从基金目录取），通过 LRU 缓存避免重复查询。
+ * ⚠️ 用「精确等于」而非「包含关键词」：旧版含「海外」会把「指数型-海外股票」
+ *   这类港股指数基金误判 T+2（如恒生科技 013309 实为 T+1 当日确认）。
+ *   白名单由实测东财目录 fundType 取值整理而来，覆盖所有真实 T+2 类型。
+ *   fundType 取不到（空串）按 T+1 兜底。
  */
 
-/** T+2 关键词：fundType 含其一即为 T+2 延迟确认基金 */
-const T2_KEYWORDS = ['海外', 'QDII', 'FOF', '商品']
+/** T+2 精确白名单：fundType 须完全等于其一才算 T+2（来自东财目录实测整理） */
+const T2_EXACT_TYPES = new Set<string>([
+  'QDII-纯债',
+  'QDII-混合偏股',
+  'QDII-混合债',
+  'QDII-混合灵活',
+  'QDII-商品',
+  'QDII-混合平衡',
+  'QDII-REITs',
+  'QDII-FOF',
+  'FOF-稳健型',
+  'FOF-进取型',
+  'FOF-均衡型',
+  '商品',
+])
 
-/** 判断基金类型是否为 T+2（fundType 含 海外/QDII/FOF/商品） */
+/** 判断基金类型是否为 T+2（fundType 精确等于白名单其一） */
 export function isT2FundType(fundType: string): boolean {
   if (!fundType) return false
-  const t = fundType.toUpperCase().trim()
-  return T2_KEYWORDS.some(k => t.includes(k.toUpperCase()))
+  return T2_EXACT_TYPES.has(fundType.trim())
 }
 
 /**
