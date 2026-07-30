@@ -18,7 +18,7 @@ import type { StockQuoteInfo } from '@/shared/types/common-types'
 import { ESTIMATE_CONFIG } from '@/config/constants'
 import { isValidFundCode } from '@/shared/utils/validation'
 import { fetchTop10FromMobileApi } from './f10-mobile-fetch'
-import { fetchTop10FromPingzhong, type PingzhongPreloaded } from './pingzhong-holdings-fetch'
+import { fetchTop10FromPingzhong, enrichMarketCodeFromPingzhong, loadPingzhongHoldings, type PingzhongPreloaded } from './pingzhong-holdings-fetch'
 import { optimizeHoldings } from './holdings-optimizer'
 import { fetchLatestNavChange } from '../valuation/nav-fetch'
 
@@ -61,6 +61,34 @@ export async function fetchEstimatedHoldings(
   if (top10 && top10.holdings.length > 0) {
     // 是否有真实占比（移动端 API 成功）；pingzhong 兜底时 ratio=0，描述如实标注"无占比"
     const hasRatio = !fallbackUsed && top10.holdings.some(h => h.ratio > 0)
+
+    // ===== 市场归属补全：用 pingzhong stockCodesNew 的权威 emMarketCode 覆盖 mobile 的猜测 =====
+    // 缘由：mobile GPDM 是裸码，韩股 000660 会被 parseGpdm 误判深市 A 股 → 走东财腾讯取不到 → 涨跌缺失。
+    // pingzhong 的 stockCodesNew 带 emCode 前缀（如 130.000660）是权威市场归属。
+    //   - 详情页（有 preloaded）：同步补全（无 IO，复用预加载），补完即返回，首屏即正确。
+    //   - 首页 bootstrap（无 preloaded）：立即返回未补全结果（首屏不阻塞），后台注入 script 补全，
+    //     设 holdingsEnrichedReady 让 store 写回缓存 + 触发 recompute（韩股随后自愈）。
+    // pingzhong 兜底路径（fallbackUsed）的 holdings 已自带正确 emCode，无需再补。
+    let holdingsEnrichedReady: Promise<void> | undefined
+    if (!fallbackUsed) {
+      if (preloaded?.stockCodesNew != null) {
+        // 同步：详情页预加载已在内存，直接补全
+        const pz = await loadPingzhongHoldings(fundCode, preloaded)
+        if (pz) enrichMarketCodeFromPingzhong(top10.holdings, pz)
+      } else {
+        // 异步：首页无预加载，先 resolve 占位结果，后台补全
+        let resolveEnriched: () => void = () => {}
+        holdingsEnrichedReady = new Promise<void>((r) => { resolveEnriched = r })
+        void (async () => {
+          try {
+            const pz = await loadPingzhongHoldings(fundCode)
+            if (pz) enrichMarketCodeFromPingzhong(top10!.holdings, pz)
+          } catch { /* 静默，补全失败保留 mobile 猜测值 */ }
+          resolveEnriched()
+        })()
+      }
+    }
+
     return {
       fundCode,
       quarterReportDate: top10.reportDate,
@@ -68,6 +96,7 @@ export async function fetchEstimatedHoldings(
       description: hasRatio ? '前十大重仓及占比' : '前十大重仓（无占比，无法加权推算）',
       holdings: top10.holdings.map(h => ({ ...h, isEstimated: false })),
       optimizationMeta: { method: 'proportional-scaling', navDaysUsed: 0, stockCoverage: 0 },
+      holdingsEnrichedReady,
     }
   }
   // pingzhong 也取不到（无 stockCodesNew）→ 真·无持仓数据
