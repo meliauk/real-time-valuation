@@ -41,6 +41,12 @@ useSettingsStore().initTheme()
 // 启动基金板块（恢复缓存 + 估值刷新 + 3 service loop）
 void startFundModule()
 
+// 版本检查器：GitHub Pages 缓存 index.html 导致老用户读旧版，此处轮询 version.json，
+// 与当前运行版本不一致即强制刷新，让用户自动用上最新部署。详见 version-checker.ts。
+import('./shared/version/version-checker').then(({ startVersionChecker }) => {
+  startVersionChecker()
+}).catch(() => { /* 静默，不影响主功能 */ })
+
 // 关页前兜底落盘：防抖定时器未触发时（用户快速关页/刷新）保证最后一次写入不丢。
 // 同步调用 flush，不依赖异步 promise（beforeunload 内异步不可靠）。
 // ⚠️ 用户在设置页执行"清除数据"时，需跳过兜底——否则刚被 removeItem 删掉的
