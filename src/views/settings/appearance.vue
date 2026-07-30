@@ -18,7 +18,7 @@
         <div class="setting-item">
           <div class="setting-info">
             <span class="setting-label">主题模式</span>
-            <span class="setting-desc">暗色科技/亮色玻璃/纯白极简三主题</span>
+            <span class="setting-desc">暗色科技/亮色玻璃</span>
           </div>
           <div class="theme-switch">
             <button
