@@ -87,6 +87,10 @@ export async function startFundModule(): Promise<void> {
     const holdingStore = useHoldingStore()
     holdingStore.syncYesterdayAmounts(valuationMap)
     void holdingStore.replayGappedHoldings(valuationMap).catch(() => { /* 静默 */ })
+    // 全量重算自愈：增量推进只在前台跑，错过的交易日无法补齐。
+    // 此处用历史净值从 holdingDate 起全量累乘，一次性把 yesterdayAmount/lastConfirmedDate
+    // 校准到最新已确认净值——用户上次关 app 期间错过的收益此处补齐。
+    void holdingStore.recalibrateHoldingsFromNav().catch(() => { /* 静默，不影响首屏 */ })
     // 启动即生成分时点：估值就绪后批量生成，确保首屏缩略图有数据（恢复不到/为空时兜底）
     for (const [code, valuation] of valuationMap) {
       store.updateIntradayPoints(code, valuation)
