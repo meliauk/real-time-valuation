@@ -24,10 +24,13 @@ import { loadJSON, saveJSON, loadString, saveString, removeKey } from '@/shared/
 import { isValidFundCode } from '@/shared/utils/validation'
 import { getTodayStr, getBaseDay, getPreviousTradingDay, isCnTradingDay } from '@/modules/fund/valuation/cn-trading-day'
 import { classifyShare } from '@/shared/market/market-classify'
+import { stockMarketToTz } from '@/shared/market/market-classify'
+import { resolveMarketTradingDays } from '@/shared/market/trading-day'
 import { normalizeStockCodeTencent } from '@/shared/net/tencent-codec'
 import { computeEstimatedGszzlFromPrevDay } from '@/modules/fund/calc/gszzl-weight'
 import { beijingNow } from '@/shared/utils/date-format'
 import { fetchEstimatedHoldings, type FetchStockQuotes } from '@/modules/fund/holdings/estimated-holdings'
+import { fetchTop10FromMobileApi } from '@/modules/fund/holdings/f10-mobile-fetch'
 import { fetchTop10FromPingzhong } from '@/modules/fund/holdings/pingzhong-holdings-fetch'
 import type { PingzhongPreloaded } from '@/modules/fund/holdings/pingzhong-holdings-fetch'
 import { generateIntradayPoints } from '@/modules/fund/intraday/intraday-points'
@@ -185,17 +188,44 @@ export const useFundStore = defineStore('fund', () => {
       removeKey(STORAGE_KEYS.STOCK_PREV_DAY_CACHE)
       removeKey(STORAGE_KEYS.STOCK_PREV_DAY_DATE)
     }
-    const rtDay = getRealtimeCacheDay()
     const rtDate = loadString(STORAGE_KEYS.STOCK_REALTIME_DATE)
-    if (rtDate === rtDay) {
+    if (rtDate) {
       const raw = loadJSON<Record<string, StockQuoteInfo> | null>(STORAGE_KEYS.STOCK_REALTIME_CACHE, null)
-      stockRealtimeCache.value = raw ? new Map(Object.entries(raw)) : new Map()
+      if (raw) {
+        // 逐条按其所属市场的「当前交易日」校验：realtime 缓存是 A/HK/US/海外混存的扁平 Map，
+        // 各市场交易日不同步（美股周五实时在北京周六仍有效），不能用单一 A 股口径全局判。
+        // 仅保留 date 仍等于该市场当前交易日的条目；旧交易日数据丢弃，交 loop 重取/写 closed。
+        // ⚠️ 必须逐条：旧实现用单个 STOCK_REALTIME_DATE 戳判定，非交易日回退到上一交易日导致
+        //    周五实时在周六被误判有效（stored===rtDay）而整体恢复，显示周五涨跌——跨日显示异常根因。
+        const kept = new Map<string, StockQuoteInfo>()
+        let changed = false
+        for (const [code, info] of Object.entries(raw)) {
+          if (!info || !realtimeEntryStillValid(info)) { changed = true; continue }
+          kept.set(code, info)
+        }
+        stockRealtimeCache.value = kept
+        // 有过期条目被丢弃：落盘缓存已与实际保留集不一致，立即写回（清空则删 key），避免下次又恢复旧值
+        if (changed) persistStockRealtimeCache()
+      } else {
+        stockRealtimeCache.value = new Map()
+        removeKey(STORAGE_KEYS.STOCK_REALTIME_CACHE)
+        removeKey(STORAGE_KEYS.STOCK_REALTIME_DATE)
+      }
     } else {
-      // 实时缓存过期（跨 A股交易日）：清 localStorage + 内存，防手机端次日显示昨日 stale 实时值
-      removeKey(STORAGE_KEYS.STOCK_REALTIME_CACHE)
-      removeKey(STORAGE_KEYS.STOCK_REALTIME_DATE)
       stockRealtimeCache.value = new Map()
     }
+  }
+
+  /** 判定单条 realtime 缓存是否仍属于「其市场的当前交易日」（有效则保留，否则丢弃）。
+   *  各市场交易日独立计算：美股周五实时在北京周六 currentTradingDay('US')=Friday 仍有效。
+   *  closed 占位（休盘 changeRate=null date=null）一律保留——loop 写入的当日休市标记无需过期。
+   *  缺 market/date 且非 closed 的（异常数据）视为过期丢弃。 */
+  function realtimeEntryStillValid(info: StockQuoteInfo): boolean {
+    if (info.closed) return true
+    if (!info.market) return false
+    const tz = stockMarketToTz(info.market)
+    const curTd = resolveMarketTradingDays(tz).currentTradingDay
+    return !!info.date && info.date === curTd
   }
 
   /** 实时缓存的归属交易日：交易日=今日，非交易日=上一交易日（实时数据属于最近/当前交易日）。 */
@@ -342,8 +372,11 @@ export const useFundStore = defineStore('fund', () => {
         const nc = normalizeStockCodeTencent(h.stockCode).code
         const info = stockRealtimeCache.value.get(nc) ?? stockRealtimeCache.value.get(h.stockCode)
         if (!info) { allHoldingsCached = false; continue }
-        // 休市(closed→changeRate=null)的股跳过加权，只加权开市股
-        if (info.changeRate != null) realtimeMapForFund.set(h.stockCode, info)
+        // 加权前按其所属市场当前交易日校验 date：丢弃旧交易日数据（防跨日过期清理漏网时旧涨跌被加权显示）。
+        // 各市场独立判定（美股周五实时在周六仍有效）。closed 占位（休盘 changeRate=null）本就不进加权。
+        if (info.changeRate == null) continue
+        if (!realtimeEntryStillValid(info)) { allHoldingsCached = false; continue }
+        realtimeMapForFund.set(h.stockCode, info)
       }
       const rtGszzl = computeEstimatedGszzlFromPrevDay(holdings, realtimeMapForFund)
       if (rtGszzl != null) {
@@ -414,8 +447,11 @@ export const useFundStore = defineStore('fund', () => {
 
     const promise = (async (): Promise<FundAllHoldings | null> => {
       try {
-        // 占比纯前端拿不到，走 pingzhong 前十大（有代码、名称由腾讯报价回填），不走 F10 全量避免代理超时
-        const result = await fetchTop10FromPingzhong(fundCode)
+        // 占比：优先东财移动端 API（含代码+名称+占比），失败回退 pingzhong（仅代码、占比0）
+        let result = await fetchTop10FromMobileApi(fundCode)
+        if (!result || result.holdings.length === 0) {
+          result = await fetchTop10FromPingzhong(fundCode)
+        }
         if (result) {
           lruSet(t1HoldingsCache.value, fundCode, { data: result, cachedDate: today }, MAX_ESTIMATED_CACHE)
         }
@@ -709,14 +745,28 @@ export const useFundStore = defineStore('fund', () => {
    *  内存 stockRealtimeCache 仍带昨日 stale 值，loop 重拉前会显示异常。
    *  本方法：比对"上次落盘的实时缓存交易日"与"当前 A股交易日"，不一致则清空内存实时缓存
    *  （+清 localStorage），让 service loop 回到前台后全量重拉。仅在跨日时清，同日不清（避免抹掉当日数据）。
-   *  幂等：已空时无副作用。 */
+   *  幂等：已空时无副作用。
+   *
+   *  按市场分片过期：realtime 缓存混存 A/HK/US/海外，各市场交易日不同步。从后台恢复时逐条按其
+   *  所属市场当前交易日校验，丢弃旧交易日条目、保留仍有效条目（如美股周五实时在北京周六仍有效）。
+   *  不再用单一 A 股口径全清——否则会把有效的非同步市场实时数据一起误删。 */
   function expireStaleRealtimeCache(): void {
-    const rtDay = getRealtimeCacheDay()
-    const stored = loadString(STORAGE_KEYS.STOCK_REALTIME_DATE)
-    if (stored && stored !== rtDay) {
-      stockRealtimeCache.value = new Map()
-      removeKey(STORAGE_KEYS.STOCK_REALTIME_CACHE)
-      removeKey(STORAGE_KEYS.STOCK_REALTIME_DATE)
+    const cur = stockRealtimeCache.value
+    if (cur.size === 0) return
+    const kept = new Map<string, StockQuoteInfo>()
+    let changed = false
+    for (const [code, info] of cur) {
+      if (!info || !realtimeEntryStillValid(info)) { changed = true; continue }
+      kept.set(code, info)
+    }
+    if (changed) {
+      stockRealtimeCache.value = kept
+      if (kept.size === 0) {
+        removeKey(STORAGE_KEYS.STOCK_REALTIME_CACHE)
+        removeKey(STORAGE_KEYS.STOCK_REALTIME_DATE)
+      } else {
+        persistStockRealtimeCache()
+      }
     }
   }
 
