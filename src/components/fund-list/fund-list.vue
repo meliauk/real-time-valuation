@@ -123,9 +123,9 @@
                       <span class="ctrl-date">{{ formatDate(row.valuationTime) }}</span>
                     </div>
                     <!-- 实时涨跌幅 + 已更新徽章：实时在左、已更新在右。
-                         「持仓预测」「实时推算」依赖完整持仓加权，占比拿不到故数据不准，先隐藏胶囊（功能不删）。 -->
-                    <div v-if="row.isUpdated || (row.realtimeGszzl != null && isRealtimeBadgeVisible(row.realtimeSource))" class="ctrl-status-row">
-                      <span v-if="row.realtimeGszzl != null && isRealtimeBadgeVisible(row.realtimeSource)" :class="['ctrl-realtime', row.realtimeGszzl > 0 ? 'rt-rise' : row.realtimeGszzl < 0 ? 'rt-fall' : 'rt-flat', row.realtimePlaceholder && 'rt-placeholder']">
+                         「持仓预测/实时推算」靠持仓占比加权，占比有效(移动端 API 取到)即显示，与详情页同口径。 -->
+                    <div v-if="row.isUpdated || (row.realtimeGszzl != null && isRealtimeBadgeVisible(row.realtimeSource, row.hasHoldingsRatio))" class="ctrl-status-row">
+                      <span v-if="row.realtimeGszzl != null && isRealtimeBadgeVisible(row.realtimeSource, row.hasHoldingsRatio)" :class="['ctrl-realtime', row.realtimeGszzl > 0 ? 'rt-rise' : row.realtimeGszzl < 0 ? 'rt-fall' : 'rt-flat', row.realtimePlaceholder && 'rt-placeholder']">
                         <span class="rt-dot"></span>
                         <span class="rt-value">{{ row.realtimeGszzl > 0 ? '+' : '' }}{{ row.realtimeGszzl.toFixed(2) }}%</span>
                         <span class="rt-label">{{ row.realtimeSource || '实时' }}</span>
@@ -239,7 +239,7 @@
                 <span v-else class="metric-value font-number text-muted">--</span>
                 <span class="metric-label">收益率</span>
               </div>
-              <div v-if="row.realtimeGszzl != null && isRealtimeBadgeVisible(row.realtimeSource)" class="metric">
+              <div v-if="row.realtimeGszzl != null && isRealtimeBadgeVisible(row.realtimeSource, row.hasHoldingsRatio)" class="metric">
                 <span :class="['realtime-badge', row.realtimeGszzl > 0 ? 'rt-rise' : row.realtimeGszzl < 0 ? 'rt-fall' : 'rt-flat', row.realtimePlaceholder && 'rt-placeholder']">
                   <span class="rt-dot"></span>
                   <span class="rt-value">{{ row.realtimeGszzl > 0 ? '+' : '' }}{{ row.realtimeGszzl.toFixed(2) }}%</span>
@@ -397,11 +397,13 @@ function formatDate(timeStr: string): string {
 }
 
 /** 实时胶囊是否可见。
- *  「持仓预测」「实时推算」依赖完整持仓加权，占比拿不到故数据不准，先隐藏胶囊（功能不删，后期恢复占比再开放）。
+ *  与详情页 isHiddenRtSource 同口径：「持仓预测/实时推算」靠持仓占比加权推算，
+ *  占比有效(移动端 API 取到前十大含占比)即显示，无占比时加权恒 0 无意义故隐藏。
  *  其它源（官方实时/休盘）正常显示。 */
-const HIDDEN_RT_SOURCES = new Set(['持仓预测', '实时推算'])
-function isRealtimeBadgeVisible(source: string | undefined): boolean {
-  return !source || !HIDDEN_RT_SOURCES.has(source)
+function isRealtimeBadgeVisible(source: string | undefined, hasHoldingsRatio = true): boolean {
+  if (!source) return true
+  if (source === '持仓预测' || source === '实时推算') return hasHoldingsRatio
+  return true
 }
 
 // ===== 长按弹出菜单 =====
