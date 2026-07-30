@@ -56,7 +56,10 @@ export function useEstimatedHoldings(fundCode: Ref<string> | string, delayDays: 
 
     loading.value = true
     error.value = null
-    // 切换基金时清空上一只的本地涨跌 Map，避免误用（全局缓存由 store 管理，不清）
+    // 切换基金时清空上一只的本地状态，避免异步取数期间残留旧基金持仓（串台）。
+    //   estimated（持仓本身）尤其关键：旧版只清涨跌 Map 不清 estimated，
+    //   切到无持仓基金时 estData=null 不更新 estimated → 永久显示上一只持仓。
+    estimated.value = null
     prevDayMap.value = new Map()
     realtimeMap.value = new Map()
 
@@ -75,7 +78,9 @@ export function useEstimatedHoldings(fundCode: Ref<string> | string, delayDays: 
     if (estData) {
       estimated.value = estData
       // 东财搜索取股票中文名填 stockName。接口返回什么显示什么，不映射。异步不阻塞，取到后触发响应式刷新。
-      void fillStockNames(estData)
+      // 传 fc 做守卫：searchStocks 异步期间若用户切到别的基金，estimated 已被新基金 loadEstimation 替换，
+      // 此处写回会串台旧基金持仓，故仅当仍是本基金时才填。
+      void fillStockNames(estData, fc)
     }
 
     // 收盘/实时涨跌：从全局缓存同步提取（不发起 Yahoo 请求；后台填充后由 watch 增量刷新）
@@ -110,12 +115,14 @@ export function useEstimatedHoldings(fundCode: Ref<string> | string, delayDays: 
    *  深市同代码退市股(1/0)和基金(150等非股票)。emMarketCode 非空时精确匹配最权威；
    *  空时排除 A股+基金，从剩余海外股挑（东财排序通常主股票在前）。
    *  仅填为空的 stockName，已具名不覆盖。异步不阻塞，取到后重新赋值 estimated 触发刷新。 */
-  async function fillStockNames(est: EstimatedHoldings): Promise<void> {
+  async function fillStockNames(est: EstimatedHoldings, fc: string): Promise<void> {
     const items = est.holdings.filter(h => !h.stockName)
     if (items.length === 0) return
     const results = await Promise.all(
       items.map(async h => ({ h, res: await searchStocks(h.stockCode) }))
     )
+    // 守卫：searchStocks 期间若已切到别的基金，estimated 已被替换，不再写回（防串台）。
+    if (code.value !== fc) return
     const NON_STOCK_MARKETS = new Set(['150', '151', '152', '153'])  // 基金/理财类 rawMarket（非股票）
     const isAShare = (m: string) => m === '1' || m === '0'
     let changed = false
