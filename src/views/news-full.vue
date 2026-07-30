@@ -54,7 +54,21 @@
 
     <!-- 资讯列表 -->
     <section class="news-panel">
-      <div v-if="newsItems.length === 0" class="empty-text">
+      <!-- 骨架屏：首屏拉取期间用资讯骨架条替代「暂无今日资讯」的短暂闪烁（loading 完成且仍空 → 落回空态）。 -->
+      <div v-if="newsStore.loading && newsItems.length === 0" class="news-timeline">
+        <div v-for="i in 6" :key="i" class="news-item skel-news-item">
+          <div class="news-time-col">
+            <span class="skel-line skel-news-time"></span>
+            <span class="time-dot"></span>
+            <span v-if="i < 6" class="time-line"></span>
+          </div>
+          <div class="news-content">
+            <span class="skel-line skel-news-title"></span>
+            <span class="skel-line skel-news-source"></span>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="newsItems.length === 0" class="empty-text">
         暂无今日资讯
       </div>
       <div v-else class="news-timeline">
@@ -648,6 +662,22 @@ onUnmounted(() => {
   color: var(--text-muted);
   text-align: center;
   padding: var(--spacing-lg);
+}
+
+/* ===== 骨架屏（资讯首屏占位）===== */
+.skel-news-item { pointer-events: none; cursor: default; }
+.skel-line {
+  display: block;
+  border-radius: var(--radius-sm);
+  background-image: linear-gradient(90deg, var(--bg-card) 0%, var(--bg-card-hover) 50%, var(--bg-card) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+.skel-news-time { width: 40px; height: 12px; }
+.skel-news-title { width: 80%; height: 13px; }
+.skel-news-source { width: 30%; height: 11px; margin-top: 5px; }
+@media (prefers-reduced-motion: reduce) {
+  .skel-line { animation: none; }
 }
 
 .loading-more {
