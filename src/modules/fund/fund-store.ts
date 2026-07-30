@@ -425,6 +425,24 @@ export const useFundStore = defineStore('fund', () => {
               }
             }).catch(() => { /* 静默 */ })
           }
+          // 后台 pingzhong 市场补全完成（首页 bootstrap 异步路径）：补全改了 holdings 的 emMarketCode，
+          // 需写回缓存 + 触发 recompute，让被误判的海外股（如韩股 000660）改走 Yahoo 正确取数。
+          if (est.holdingsEnrichedReady) {
+            est.holdingsEnrichedReady.then(() => {
+              try {
+                // 写回补全后的持仓（覆盖首屏占位的错误市场缓存），供下一轮 collectMissingStocks 按新 emCode 分流
+                lruSet(estimatedHoldingsCache.value, fundCode, { data: est, cachedDate: getTodayStr() }, MAX_ESTIMATED_CACHE)
+                // 清掉按错误深市 key 写入的脏涨跌缓存（若有），避免 recompute 仍取到旧误判值
+                for (const h of est.holdings) {
+                  const nc = normalizeStockCodeTencent(h.stockCode).code
+                  if (stockRealtimeCache.value.has(nc)) stockRealtimeCache.value.delete(nc)
+                  if (stockPrevDayCache.value.has(nc)) stockPrevDayCache.value.delete(nc)
+                }
+                // 触发重算：被改市场的股重新进 collect 分流（韩股→overseas→Yahoo），取数后 recompute 回填
+                void recomputeFundsForStocks(est.holdings.map(h => h.stockCode))
+              } catch { /* 静默 */ }
+            }).catch(() => { /* 静默 */ })
+          }
         }
         return est
       } finally {
