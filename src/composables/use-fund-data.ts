@@ -36,8 +36,14 @@ export interface FundRowData {
   isEstimated?: boolean
   isUpdated?: boolean
   delayDays?: 1 | 2
-  /** 是否有今日涨跌数据（有盘中估算 gztime 或今日确认净值）。无数据时今日涨跌列显示 -- 而非 0.00% */
+  /** 是否有今日涨跌数据。与详情页 currentGszzl(=gszzl) 口径一致：
+   *  有非零估算涨跌(gszzl)、或有盘中估算时间(gztime)、或今日确认净值已出(jzrg) 任一即显示；
+   *  全无时今日涨跌列显示 -- 而非 0.00%（避免无数据时误显 0）。 */
   hasTodayData?: boolean
+  /** 本基金持仓是否有真实占比（移动端 API 前十大含占比）。
+   *  用于实时胶囊「持仓预测/实时推算」展示开关——占比有效即显示（与详情页 isHiddenRtSource 同口径），
+   *  无占比时加权推算无意义故隐藏。 */
+  hasHoldingsRatio?: boolean
   realtimeGszzl?: number
   realtimeSource?: string
   realtimeUpdatedAt?: string
@@ -108,9 +114,18 @@ export function useFundData() {
           ? (totalReturnRate > 0 ? 'profit' : totalReturnRate < 0 ? 'loss' : 'flat')
           : 'flat'
 
-        // 是否有今日涨跌数据：有盘中估算 gztime（fundgz 出今日估值），或今日确认净值已发布（jzrq >= 预期日期）。
-        // 二者皆无 → 接口无当日数据，今日涨跌列显示 --（而非 0.00%）。
-        const hasTodayData = (!!v?.gztime) || (v?.jzrq != null && v.jzrq >= expectedConfirmDate)
+        // 是否有今日涨跌数据：与详情页 currentGszzl(=gszzl) 口径一致——
+        // 有非零估算涨跌、或有盘中估算 gztime、或今日确认净值已出，任一即显示今日涨跌；
+        // 全无（fundgz/新浪失败且确认未出）才显示 -- 而非 0.00%。
+        // 旧逻辑仅认 gztime/jzrq，T+2 fundgz 失败但有 pingzhongdata 推算 gszzl 时会误显 --，
+        // 与详情页(直接显 gszzl)不一致，故放宽为 gszzl≠0 也算有数据。
+        const hasTodayData = gszzl !== 0 || (!!v?.gztime) || (v?.jzrq != null && v.jzrq >= expectedConfirmDate)
+
+        // 持仓占比是否有效：读推算持仓缓存（T+1/T+2 同源），任一项 ratio>0 即有效。
+        // 与详情页 hasHoldingsRatio(displayHoldings.holdings.some(h=>h.ratio>0)) 同口径，
+        // 供实时胶囊按新口径决定「持仓预测/实时推算」是否显示。
+        const estHoldings = fundStore.estimatedHoldingsCache.get(code)?.data
+        const hasHoldingsRatio = !!estHoldings && estHoldings.holdings.some(h => (h.ratio ?? 0) > 0)
 
         return {
           fundCode: code,
@@ -131,6 +146,7 @@ export function useFundData() {
           isEstimated,
           isUpdated,
           hasTodayData,
+          hasHoldingsRatio,
           delayDays: v?.delayDays ?? 1,
           realtimeGszzl: v?.realtimeGszzl,
           realtimeSource: v?.realtimeSource,
