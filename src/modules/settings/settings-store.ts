@@ -47,7 +47,7 @@ export interface UserSettings {
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
-  theme: 'dark',
+  theme: 'light',
   autoRefresh: true,
   marketAutoRefresh: true,
   sectorAutoRefresh: true,
@@ -58,12 +58,12 @@ const DEFAULT_SETTINGS: UserSettings = {
   newsAutoRefresh: true,
   overseasNews: false,
   newsRefreshInterval: 120,
-  showPageMarquee: true,
-  showSearchGlow: true,
-  enableGlassEffect: true,
+  showPageMarquee: false,
+  showSearchGlow: false,
+  enableGlassEffect: false,
   enableManagerCheck: true,
   privacy: {
-    holding: false, todayProfit: false, todayRate: false, totalProfit: false, totalRate: false,
+    holding: true, todayProfit: true, todayRate: true, totalProfit: true, totalRate: true,
   },
 }
 
