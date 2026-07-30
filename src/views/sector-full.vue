@@ -55,7 +55,18 @@
 
     <!-- 内容滚动区：上下滑动展示全部榜单 -->
     <div class="sector-body" ref="bodyRef" @scroll.passive="handleScroll">
-      <div v-if="loading && rows.length === 0" class="loading-text">加载中...</div>
+      <!-- 骨架屏：榜单首屏拉取时用占位行替代纯文字「加载中」，结构与 rank-row 等高贴合榜单观感。
+           底部分页的「加载更多」是增量加载，保留文字态不换骨架（无首屏空白问题）。 -->
+      <div v-if="loading && rows.length === 0" class="rank-list">
+        <div v-for="i in 10" :key="i" class="rank-row skel-row">
+          <span class="rank-no skel-rank"></span>
+          <div class="rank-info">
+            <span class="skel-line skel-rank-name"></span>
+            <span class="skel-line skel-rank-code"></span>
+          </div>
+          <div class="rank-metric skel-line skel-rank-metric"></div>
+        </div>
+      </div>
       <div v-else-if="rows.length === 0 && errorTip" class="empty-text">
         <p>加载失败</p>
         <p class="empty-sub">{{ errorTip }}</p>
@@ -720,6 +731,24 @@ function onResize(): void { updateMarketIndicator(); updateMetricIndicator() }
   flex-direction: column;
   gap: var(--spacing-xs);
 }
+
+/* ===== 骨架屏（榜单首屏占位）===== */
+.skel-row { pointer-events: none; }
+.skel-line {
+  display: block;
+  border-radius: var(--radius-sm);
+  background-image: linear-gradient(90deg, var(--bg-card) 0%, var(--bg-card-hover) 50%, var(--bg-card) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+.skel-rank { background: var(--bg-input); }
+.skel-rank-name { width: 50%; height: 13px; }
+.skel-rank-code { width: 32%; height: 11px; margin-top: 2px; }
+.skel-rank-metric { min-height: 14px; background: var(--bg-surface); }
+@media (prefers-reduced-motion: reduce) {
+  .skel-line { animation: none; }
+}
+
 .empty-sub {
   font-size: var(--font-xs);
   color: var(--text-muted);
