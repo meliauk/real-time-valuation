@@ -133,6 +133,9 @@ export function useAutoRefresh() {
     if (gap >= 0 && gap < VISIBILITY_REFRESH_MIN_GAP_MS) return
     await fundStore.refreshAllValuations()
     void holdingStore.executePendingActions(fundStore.valuationMap).catch(() => { /* 静默 */ })
+    // 从后台/切回前台恢复：增量推进期间 app 不在前台未跑，可能错过若干交易日收益。
+    // 刷新估值后全量重算一次，把昨夜至今错过的累计补齐（静默，不影响 UI）。
+    void holdingStore.recalibrateHoldingsFromNav().catch(() => { /* 静默 */ })
   }
 
   function onVisibilityChange(): void {
