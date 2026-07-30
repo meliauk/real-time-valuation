@@ -52,30 +52,47 @@ export const useHoldingStore = defineStore('holding', () => {
   const pendingOnly = computed(() =>
     pendingActions.value.filter(a => a.status === PendingActionStatus.Pending),
   )
+  /** 活跃持仓按 fundCode 分组索引——派生自 activeHoldings（依赖 holdings ref），
+   *  holdings 增删/结算翻转时 computed 自动失效重算，无需手动同步写入点。
+   *  各按基金查询方法改读此索引，消除「每只基金一次 activeHoldings.filter 全表扫描」的 O(n×m)：
+   *  列表渲染时 N 只基金 × M 笔持仓，旧实现每只基金多次 filter 全表，刷新一次为 O(n²) 级。 */
+  const holdingsByFund = computed(() => {
+    const m = new Map<string, Holding[]>()
+    for (const h of activeHoldings.value) {
+      const arr = m.get(h.fundCode)
+      if (arr) arr.push(h)
+      else m.set(h.fundCode, [h])
+    }
+    return m
+  })
 
   // ===== 查询 =====
   function getPendingByFund(fundCode: string): PendingAction[] {
     return pendingOnly.value.filter(a => a.fundCode === fundCode)
   }
   function getHoldingsByFund(fundCode: string): Holding[] {
-    return activeHoldings.value.filter(h => h.fundCode === fundCode)
+    return holdingsByFund.value.get(fundCode) ?? []
   }
   function getTotalShares(fundCode: string): number {
-    return activeHoldings.value
-      .filter(h => h.fundCode === fundCode)
-      .reduce((sum, h) => sum + h.shares, 0)
+    const list = holdingsByFund.value.get(fundCode)
+    if (!list) return 0
+    let sum = 0
+    for (const h of list) sum += h.shares
+    return sum
   }
   function getAvgCostPrice(fundCode: string): number {
-    const list = activeHoldings.value.filter(h => h.fundCode === fundCode)
-    if (list.length === 0) return 0
+    const list = holdingsByFund.value.get(fundCode)
+    if (!list || list.length === 0) return 0
     let totalCost = 0, totalShares = 0
     for (const h of list) { totalCost += h.shares * h.costPrice; totalShares += h.shares }
     return totalShares > 0 ? totalCost / totalShares : 0
   }
   function getPrincipal(fundCode: string): number {
-    return activeHoldings.value
-      .filter(h => h.fundCode === fundCode)
-      .reduce((sum, h) => sum + (h.initialAmount ?? h.shares * h.costPrice), 0)
+    const list = holdingsByFund.value.get(fundCode)
+    if (!list) return 0
+    let sum = 0
+    for (const h of list) sum += h.initialAmount ?? h.shares * h.costPrice
+    return sum
   }
 
   // ===== 涨跌幅驱动计算 =====
@@ -87,9 +104,11 @@ export const useHoldingStore = defineStore('holding', () => {
 
   /** 昨日持有金额 = 各持仓笔 yesterdayAmount 之和 */
   function getYesterdayHoldingAmount(fundCode: string): number {
-    return activeHoldings.value
-      .filter(h => h.fundCode === fundCode)
-      .reduce((sum, h) => sum + (h.yesterdayAmount ?? h.initialAmount ?? h.shares * h.costPrice), 0)
+    const list = holdingsByFund.value.get(fundCode)
+    if (!list) return 0
+    let sum = 0
+    for (const h of list) sum += h.yesterdayAmount ?? h.initialAmount ?? h.shares * h.costPrice
+    return sum
   }
 
   /** 持有金额 = 昨日持有金额（仅含已确认数据），估算时不含当日涨跌 */
@@ -97,8 +116,9 @@ export const useHoldingStore = defineStore('holding', () => {
     const base = getYesterdayHoldingAmount(fundCode)
     // syncYesterdayAmounts 尚未运行（新持仓 confirmedBaseAmount 全 0），用涨跌幅直接算
     if (_isEstimated === false && _gszzl && _gszzl !== 0) {
-      const list = activeHoldings.value.filter(h => h.fundCode === fundCode)
-      const totalConfirmedBase = list.reduce((sum, h) => sum + (h.confirmedBaseAmount ?? 0), 0)
+      const list = holdingsByFund.value.get(fundCode) ?? []
+      let totalConfirmedBase = 0
+      for (const h of list) totalConfirmedBase += h.confirmedBaseAmount ?? 0
       if (totalConfirmedBase === 0) {
         return roundMoney(base * (1 + displayRateSafe(_gszzl) / 100))
       }
@@ -116,8 +136,9 @@ export const useHoldingStore = defineStore('holding', () => {
    *  yesterdayAmount 的影响——持有数据基金更新后会变，今日收益始终基于更新前的基数计算。
    *  confirmedBaseAmount 为 0（新持仓尚未 sync）时兜底 yesterdayAmount。 */
   function calcFundTodayProfit(fundCode: string, _changeRate: number, _dwjz?: number, gszzl?: number, _isEstimated?: boolean): number {
-    const list = activeHoldings.value.filter(h => h.fundCode === fundCode)
-    const confirmedBase = list.reduce((sum, h) => sum + (h.confirmedBaseAmount ?? 0), 0)
+    const list = holdingsByFund.value.get(fundCode) ?? []
+    let confirmedBase = 0
+    for (const h of list) confirmedBase += h.confirmedBaseAmount ?? 0
     const base = confirmedBase > 0 ? confirmedBase : getYesterdayHoldingAmount(fundCode)
     if (base <= 0) return 0
     return roundMoney(base * displayRateSafe(gszzl) / 100)
@@ -144,11 +165,14 @@ export const useHoldingStore = defineStore('holding', () => {
     const fundCodes = new Set(activeHoldings.value.map(h => h.fundCode))
     for (const code of fundCodes) {
       const v = valuationMap.get(code)
-      totalCost += getPrincipal(code)
+      // getPrincipal 复用：旧实现此循环内调了两次 getPrincipal（加 totalCost、算 totalProfit），
+      // 各扫一遍持仓。提为局部变量调一次，口径不变。
+      const principal = getPrincipal(code)
+      totalCost += principal
       const baseAmount = getFundHoldingAmount(code, v?.dwjz, v?.gszzl, v?.isEstimated)
       const todayProfit = calcFundTodayProfit(code, 0, v?.dwjz, v?.gszzl, v?.isEstimated)
       totalHoldingAmount += baseAmount
-      totalProfit += roundMoney(baseAmount - getPrincipal(code))
+      totalProfit += roundMoney(baseAmount - principal)
       todayProfitSum += todayProfit
       totalYesterdayAmount += getYesterdayHoldingAmount(code)
     }
