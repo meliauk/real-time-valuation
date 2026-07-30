@@ -59,28 +59,7 @@ export async function fetchTop10FromPingzhong(
   }
   if (entries.length === 0) return null
 
-  const holdings: HoldingDetailItem[] = []
-  for (const entry of entries.slice(0, 10)) {
-    // stockCodesNew 条目格式：
-    //   - '{emMarketCode}.{code}'：如 105.ASML(美股)、1.603667(沪A)、116.00700(港股)
-    //   - '{code} {market}'：如 285A JP(日股，空格分隔，腾讯无行情)
-    //   - 纯代码：如 000660(港股/韩股无前缀)
-    const dot = entry.indexOf('.')
-    if (dot > 0) {
-      // {emMarketCode}.{stockCode}
-      const emMarketCode = entry.substring(0, dot)
-      const stockCode = entry.substring(dot + 1)
-      if (stockCode) {
-        holdings.push({ stockCode, stockName: '', ratio: 0, emMarketCode, rawEntry: entry })
-        continue
-      }
-    }
-    // 无点号格式：纯代码（含空格的取首段），无 emMarketCode，市场判 unknown（腾讯无行情，名称留空）
-    const bareCode = entry.split(/\s+/)[0]
-    if (bareCode) {
-      holdings.push({ stockCode: bareCode, stockName: '', ratio: 0, emMarketCode: '', rawEntry: entry })
-    }
-  }
+  const holdings = parseStockCodesNew(entries)
 
   if (holdings.length === 0) return null
 
@@ -94,6 +73,118 @@ export async function fetchTop10FromPingzhong(
     isFull: false,   // 仅前十大，非全量
     holdings,
   }
+}
+
+/**
+ * 解析 pingzhong stockCodesNew 条目数组 → HoldingDetailItem[]（仅 stockCode/emMarketCode/rawEntry，无 ratio/name）。
+ * 抽自 fetchTop10FromPingzhong 供补全函数复用，保证解析口径一致。
+ *
+ * 条目格式：
+ *   - '{emMarketCode}.{code}'：如 105.ASML(美股)、1.603667(沪A)、130.000660(韩股) → emCode 权威
+ *   - '{code} {market}'：如 285A JP(日股) → 无点号，emCode 留空
+ *   - 纯代码：如 000660(港股/韩股无前缀) → emCode 留空（交 Yahoo Search）
+ */
+export function parseStockCodesNew(entries: string[]): HoldingDetailItem[] {
+  const holdings: HoldingDetailItem[] = []
+  for (const entry of entries.slice(0, 10)) {
+    const dot = entry.indexOf('.')
+    if (dot > 0) {
+      const emMarketCode = entry.substring(0, dot)
+      const stockCode = entry.substring(dot + 1)
+      if (stockCode) {
+        holdings.push({ stockCode, stockName: '', ratio: 0, emMarketCode, rawEntry: entry })
+        continue
+      }
+    }
+    const bareCode = entry.split(/\s+/)[0]
+    if (bareCode) {
+      holdings.push({ stockCode: bareCode, stockName: '', ratio: 0, emMarketCode: '', rawEntry: entry })
+    }
+  }
+  return holdings
+}
+
+/**
+ * 加载 pingzhong stockCodesNew 并解析为 holdings（仅 stockCode/emMarketCode/rawEntry）。
+ * 详情页已有 preloaded 时复用（无 IO）；首页 bootstrap 无 preloaded 时注入 script 兜底（有 IO）。
+ * 供 enrichMarketCodeFromPingzhong 补全 mobile 市场归属用。取不到返回 null（调用方静默跳过补全）。
+ */
+export async function loadPingzhongHoldings(
+  fundCode: string,
+  preloaded?: PingzhongPreloaded,
+): Promise<HoldingDetailItem[] | null> {
+  if (!isValidFundCode(fundCode)) return null
+  const stockCodesNew = preloaded?.stockCodesNew ?? await loadPingzhongGlobal<unknown>(fundCode, 'stockCodesNew')
+  let entries: string[]
+  if (Array.isArray(stockCodesNew)) {
+    entries = stockCodesNew.map(s => String(s).trim()).filter(Boolean)
+  } else if (typeof stockCodesNew === 'string' && stockCodesNew) {
+    entries = stockCodesNew.split(',').map(s => s.trim()).filter(Boolean)
+  } else {
+    return null
+  }
+  if (entries.length === 0) return null
+  return parseStockCodesNew(entries)
+}
+
+/**
+ * 用 pingzhong stockCodesNew 的权威 emMarketCode 补全/覆盖给定的（mobile 来源）holdings。
+ *
+ * 缘由：mobile API 的 GPDM 是裸码（如韩股 000660，6 位数字无市场前缀），parseGpdm 会误判为深市 A 股，
+ * 导致该股走东财腾讯取数（深市无此股 → 取不到 → 昨日/实时涨跌缺失）。pingzhong 的 stockCodesNew
+ * 带 emMarketCode 前缀（如 130.000660），是权威市场归属。用其按 stockCode 匹配覆盖 mobile 的 emMarketCode，
+ * 让韩股等海外股正确走 Yahoo。
+ *
+ * 覆盖规则：pingzhong 命中且其 emMarketCode 非空 → 覆盖 emMarketCode + rawEntry（不碰 ratio/name，那是 mobile 独有）；
+ *           pingzhong 无此条或 emCode 空 → 保留 mobile 原值（A/港/美 mobile 通常猜对）。
+ *
+ * 匹配键：三级匹配（与 enrichNamesFromFundSharesPositions 同思路），覆盖前导零/大小写差异：
+ *   1. 原值精确匹配（韩股两端均 000660）
+ *   2. toUpperCase() 匹配（美股 ASML vs asml）
+ *   3. 纯数字且非 6 位（非 A 股）去前导零匹配（港股 00700→700）
+ *
+ * @param holdings  待补全的（mobile 来源）holdings，就地修改 emMarketCode/rawEntry
+ * @param pzHolding pingzhong 解析出的前十大（stockCodesNew→parseStockCodesNew），含权威 emCode
+ * @returns 是否发生覆盖（用于上层决定是否触发重算）
+ */
+export function enrichMarketCodeFromPingzhong(
+  holdings: { stockCode: string; emMarketCode?: string; rawEntry?: string }[],
+  pzHoldings: { stockCode: string; emMarketCode?: string; rawEntry?: string }[],
+): boolean {
+  if (!holdings.length || !pzHoldings.length) return false
+
+  // 三级匹配索引（仅收录 emMarketCode 非空的 pingzhong 条目，空 emCode 无补全价值）
+  const byCode = new Map<string, { emMarketCode: string; rawEntry: string }>()
+  const byUpper = new Map<string, { emMarketCode: string; rawEntry: string }>()
+  const byNumTrimmed = new Map<string, { emMarketCode: string; rawEntry: string }>()
+  for (const p of pzHoldings) {
+    const em = (p.emMarketCode || '').trim()
+    if (!em) continue
+    const c = p.stockCode
+    const raw = p.rawEntry || c
+    const v = { emMarketCode: em, rawEntry: raw }
+    byCode.set(c, v)
+    byUpper.set(c.toUpperCase(), v)
+    if (/^\d+$/.test(c) && c.length !== 6) {
+      byNumTrimmed.set(String(parseInt(c, 10)), v)
+    }
+  }
+  if (!byCode.size && !byUpper.size && !byNumTrimmed.size) return false
+
+  let changed = false
+  for (const h of holdings) {
+    const c = h.stockCode
+    const matched =
+      byCode.get(c) ??
+      byUpper.get(c.toUpperCase()) ??
+      (/^\d+$/.test(c) && c.length !== 6 ? byNumTrimmed.get(String(parseInt(c, 10))) : undefined)
+    if (matched && matched.emMarketCode && matched.emMarketCode !== h.emMarketCode) {
+      h.emMarketCode = matched.emMarketCode
+      h.rawEntry = matched.rawEntry
+      changed = true
+    }
+  }
+  return changed
 }
 
 /**
