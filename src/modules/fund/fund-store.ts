@@ -253,6 +253,33 @@ export const useFundStore = defineStore('fund', () => {
     saveString(STORAGE_KEYS.STOCK_REALTIME_DATE, getRealtimeCacheDay())
   }
 
+  /** 恢复 T+2 推算估值涨跌幅缓存（重启首屏预热）。
+   *  日期戳用美股基准日（getBaseDay）：推算值基于持仓股票昨收加权，昨收缓存按 baseDay 校验，
+   *  口径必须一致——baseDay 变化（全球跨日）即昨收已失效，推算值也应丢弃重算。
+   *  seedFromCache 据此恢复 T+2 未确认基金的 gszzl，避免重启后长时间 --（要等 loop 重算）。 */
+  function restoreEstimatedGszzlMap(): void {
+    const date = loadString(STORAGE_KEYS.ESTIMATED_GSZZL_DATE)
+    if (date !== getBaseDay()) {
+      // 过期（跨日）：清盘避免下次仍读旧值，内存留空让 recompute 重算
+      removeKey(STORAGE_KEYS.ESTIMATED_GSZZL_CACHE)
+      removeKey(STORAGE_KEYS.ESTIMATED_GSZZL_DATE)
+      return
+    }
+    const raw = loadJSON<Record<string, number> | null>(STORAGE_KEYS.ESTIMATED_GSZZL_CACHE, null)
+    if (raw && typeof raw === 'object') {
+      estimatedGszzlMap.value = new Map(Object.entries(raw))
+    }
+  }
+
+  /** 持久化 T+2 推算估值涨跌幅（摊成普通对象，带美股基准日戳）。
+   *  recompute 算出新推算值后调用，供下次重启 seedFromCache 恢复。 */
+  function persistEstimatedGszzlMap(): void {
+    const obj: Record<string, number> = {}
+    for (const [code, gszzl] of estimatedGszzlMap.value) obj[code] = gszzl
+    saveJSON(STORAGE_KEYS.ESTIMATED_GSZZL_CACHE, obj)
+    saveString(STORAGE_KEYS.ESTIMATED_GSZZL_DATE, getBaseDay())
+  }
+
   /** 恢复盘中分时点缓存（仅当日写入有效，跨日丢弃重生成，避免首屏缩略图空白） */
   function restoreIntradayMap(): void {
     if (loadString(STORAGE_KEYS.INTRADAY_MAP_DATE) !== getTodayStr()) return
@@ -362,6 +389,7 @@ export const useFundStore = defineStore('fund', () => {
           v.gszzl = gszzl
           if (v.dwjz > 0) v.gz = v.dwjz * (1 + gszzl / 100)
           estimatedGszzlMap.value.set(fundCode, gszzl)
+          persistEstimatedGszzlMap()  // 落盘供下次重启 seedFromCache 恢复（T+2 今日涨跌首屏不 --）
         }
       }
       // 实时加权 → realtimeGszzl（头部胶囊）。确认后也推算——实时估算是独立展示需求。
@@ -811,6 +839,8 @@ export const useFundStore = defineStore('fund', () => {
     estimatedHoldingsCache.value = new Map()
     t1HoldingsCache.value = new Map()
     estimatedGszzlMap.value = new Map()
+    removeKey(STORAGE_KEYS.ESTIMATED_GSZZL_CACHE)
+    removeKey(STORAGE_KEYS.ESTIMATED_GSZZL_DATE)
     intradayMap.value = {}
     lastRefreshDate.value = getBaseDay()
   }
@@ -824,6 +854,8 @@ export const useFundStore = defineStore('fund', () => {
     estimatedHoldingsCache.value = new Map()
     t1HoldingsCache.value = new Map()
     estimatedGszzlMap.value = new Map()
+    removeKey(STORAGE_KEYS.ESTIMATED_GSZZL_CACHE)
+    removeKey(STORAGE_KEYS.ESTIMATED_GSZZL_DATE)
     intradayMap.value = {}
     fundNameMap.value = {}
     valuationMap.value = new Map()
@@ -950,6 +982,7 @@ export const useFundStore = defineStore('fund', () => {
     // 持久化
     restoreFundCodes, restoreFundNames, persistFundCodes, restoreStockCaches,
     persistStockPrevDayCache, persistStockRealtimeCache, restoreIntradayMap,
+    restoreEstimatedGszzlMap, persistEstimatedGszzlMap,
     // merge/recompute
     mergeStockQuotesToCache, mergeRealtimeToCache, recomputeFundsForStocks,
     // 持仓取数
