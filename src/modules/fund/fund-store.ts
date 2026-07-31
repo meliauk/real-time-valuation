@@ -39,6 +39,7 @@ import { batchGetValuation } from '@/modules/fund/valuation/fund-valuation-merge
 import { getFundType } from '@/modules/fund/catalog/fund-code-catalog'
 import { useCacheStore } from '@/modules/fund/cache-store'
 import { useHoldingStore } from '@/modules/holding/holding-store'
+import { useSettingsStore } from '@/modules/settings/settings-store'
 
 /** 推算持仓缓存条目 */
 interface EstimatedCacheEntry { data: EstimatedHoldings; cachedDate: string }
@@ -345,6 +346,8 @@ export const useFundStore = defineStore('fund', () => {
 
   /** 持仓涨跌数据变化后，立即重算持有这些股票的基金估值（gszzl 昨日收盘 + realtimeGszzl 实时） */
   async function recomputeFundsForStocks(stockCodes: Iterable<string>): Promise<void> {
+    const settingsStore = useSettingsStore()
+    const predictionEnabled = settingsStore.enablePrediction
     const affectedFunds = fundsHoldingStocks(stockCodes)
     for (const [fundCode, holdings] of affectedFunds) {
       const v = valuationMap.value.get(fundCode)
@@ -365,6 +368,12 @@ export const useFundStore = defineStore('fund', () => {
       // 胶囊标签统一为「预测」（持仓股票实时加权推算）；后端仍按确认类型区分计算口径：
       //   - 当日确认（原 T+1）：基金有 fundgz 官方盘中估值作主值，胶囊是持仓股票实时加权
       //   - 次日确认（原 T+2）：无盘中估值，胶囊是唯一实时推算（今日市场数据，美股含盘前/盘中/盘后）
+      // enablePrediction=false 时不做实时加权推算（持仓股行情照拉，喂 T+2 主估值与持仓表涨跌列；
+      //   仅不产 realtimeGszzl 胶囊），用户不关注预测可关闭省计算。
+      if (!predictionEnabled) {
+        valuationMap.value.set(fundCode, v) // 触发响应式
+        continue
+      }
       const rtLabel = '预测'
       const realtimeMapForFund = new Map<string, StockQuoteInfo>()
       let allHoldingsCached = true  // 是否每只持仓都有缓存条目（用于判全休市）
