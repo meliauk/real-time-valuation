@@ -123,7 +123,7 @@
                       <span class="ctrl-date">{{ formatDate(row.valuationTime) }}</span>
                     </div>
                     <!-- 实时涨跌幅 + 已更新徽章：实时在左、已更新在右。
-                         「预测」靠持仓占比加权，占比有效(移动端 API 取到)即显示，与详情页同口径。 -->
+                         「实时」靠持仓占比加权，占比有效(移动端 API 取到)即显示，与详情页同口径。 -->
                     <div v-if="row.isUpdated || (row.realtimeGszzl != null && isRealtimeBadgeVisible(row.realtimeSource, row.hasHoldingsRatio))" class="ctrl-status-row">
                       <span v-if="row.realtimeGszzl != null && isRealtimeBadgeVisible(row.realtimeSource, row.hasHoldingsRatio)" :class="['ctrl-realtime', row.realtimeGszzl > 0 ? 'rt-rise' : row.realtimeGszzl < 0 ? 'rt-fall' : 'rt-flat', row.realtimePlaceholder && 'rt-placeholder']">
                         <span class="rt-dot"></span>
@@ -343,11 +343,11 @@ const SORT_FIELDS: SortFieldOption[] = [
   { label: '持有金额',   field: 'holdingAmount' },
   { label: '今日收益',   field: 'todayProfit' },
   { label: '今日收益率', field: 'changeRate' },
-  { label: '预测涨跌幅', field: 'realtimeGszzl' },
+  { label: '实时涨跌幅', field: 'realtimeGszzl' },
   { label: '累计收益',   field: 'totalProfit' },
   { label: '累计收益率', field: 'totalReturnRate' },
 ]
-// 排序选项视图：enablePrediction=false 时过滤掉「预测涨跌幅」（该值不再推算，排序无意义）。
+// 排序选项视图：enablePrediction=false 时过滤掉「实时涨跌幅」（该值不再推算，排序无意义）。
 const sortFieldsView = computed<SortFieldOption[]>(() =>
   settingsStore.enablePrediction ? SORT_FIELDS : SORT_FIELDS.filter(o => o.field !== 'realtimeGszzl'),
 )
@@ -402,12 +402,12 @@ function formatDate(timeStr: string): string {
 }
 
 /** 实时胶囊是否可见。
- *  与详情页 isHiddenRtSource 同口径：「预测」靠持仓占比加权推算，
+ *  与详情页 isHiddenRtSource 同口径：「实时」靠持仓占比加权推算，
  *  占比有效(移动端 API 取到前十大含占比)即显示，无占比时加权恒 0 无意义故隐藏。
  *  其它源（官方实时/休盘）正常显示。 */
 function isRealtimeBadgeVisible(source: string | undefined, hasHoldingsRatio = true): boolean {
   if (!source) return true
-  if (source === '预测') return hasHoldingsRatio
+  if (source === '实时') return hasHoldingsRatio
   return true
 }
 
