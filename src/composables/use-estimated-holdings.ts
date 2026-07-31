@@ -240,6 +240,7 @@ export function useEstimatedHoldings(fundCode: Ref<string> | string, delayDays: 
     getPrevDayRate,
     prevDayClass,
     formatRate,
+    prevDayMap,
     realtimeMap,
     getRealtimeRate,
     getRealtimeSession,
