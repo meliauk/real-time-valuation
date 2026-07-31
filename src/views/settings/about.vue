@@ -22,7 +22,17 @@
           </div>
           <div class="about-row">
             <span>数据来源</span>
-            <span class="about-value">天天基金 · 东方财富 · 新浪财经</span>
+            <span class="about-value">天天基金 · 东方财富 · 新浪财经 · 腾讯</span>
+          </div>
+          <div class="about-row">
+            <span>GitHub 源码</span>
+            <a class="about-value about-link" href="https://github.com/L-newbie/real-time-valuation" target="_blank" rel="noopener noreferrer">
+              https://github.com/L-newbie/real-time-valuation
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M7 17L17 7" />
+                <path d="M7 7h10v10" />
+              </svg>
+            </a>
           </div>
         </div>
       </SettingsSection>
@@ -119,6 +129,15 @@ const router = useRouter()
   text-align: right;
   flex-shrink: 0;
 }
+.about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+.about-link:hover { color: var(--text-primary); }
 
 /* 免责声明 */
 .about-disclaimer {
