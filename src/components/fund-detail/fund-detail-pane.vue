@@ -218,20 +218,37 @@
               <div class="holdings-thead">
                 <span>#</span><span>股票</span><span>占比</span><span>涨跌</span>
               </div>
-              <div v-for="(stock, idx) in displayHoldings.holdings" :key="stock.stockCode" class="holdings-row">
-                <span class="h-idx">{{ idx + 1 }}</span>
-                <div class="h-name-wrap">
-                  <span class="h-name">{{ stock.stockName || stock.stockCode }}</span>
-                  <span class="h-code font-number">{{ stock.stockCode }}</span>
-                </div>
-                <span class="h-ratio font-number">{{ stock.ratio > 0 ? stock.ratio.toFixed(2) + '%' : '--' }}</span>
-                <span v-if="stockChange(stock) != null" class="h-rate-wrap">
-                  <span :class="['h-rate font-number', stockChangeClass(stock)]">
-                    {{ stockChange(stock)! > 0 ? '+' : '' }}{{ (stockChange(stock) as number).toFixed(2) }}%
+              <template v-for="(stock, idx) in displayHoldings.holdings" :key="stock.stockCode">
+                <div class="holdings-row" @click="toggleStock(stock.stockCode)">
+                  <span class="h-idx">{{ idx + 1 }}</span>
+                  <div class="h-name-wrap">
+                    <span class="h-name">{{ stock.stockName || stock.stockCode }}</span>
+                    <span class="h-code font-number">{{ stock.stockCode }}</span>
+                  </div>
+                  <span class="h-ratio font-number">{{ stock.ratio > 0 ? stock.ratio.toFixed(2) + '%' : '--' }}</span>
+                  <span v-if="stockChange(stock) != null" class="h-rate-wrap">
+                    <span :class="['h-rate font-number', stockChangeClass(stock)]">
+                      {{ stockChange(stock)! > 0 ? '+' : '' }}{{ (stockChange(stock) as number).toFixed(2) }}%
+                    </span>
+                    <svg :class="['h-expand-arrow', expandedStocks.has(stock.stockCode) ? 'open' : '']" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                   </span>
-                </span>
-                <span v-else class="h-rate font-number text-muted">--</span>
-              </div>
+                  <span v-else class="h-rate font-number text-muted">
+                    --
+                    <svg :class="['h-expand-arrow', expandedStocks.has(stock.stockCode) ? 'open' : '']" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </span>
+                </div>
+                <Transition name="collapse">
+                  <div v-if="expandedStocks.has(stock.stockCode)" class="h-debug-row">
+                    <div class="h-debug-grid">
+                      <span class="hd-cell"><em>市场归属</em><b :class="{ 'hd-warn': !stock.emMarketCode }">{{ marketLabel(stock) }}</b></span>
+                      <span class="hd-cell"><em>判定档位</em><b :class="{ 'hd-warn': shareClass(stock) === 'unknown' }">{{ shareClass(stock) }}</b></span>
+                      <span class="hd-cell"><em>取数接口</em><b :class="{ 'hd-warn': stockQuote(stock)?.source?.toLowerCase().includes('yahoo') }">{{ stockQuote(stock)?.source || '待取' }}</b></span>
+                      <span class="hd-cell"><em>涨跌就绪</em><b>{{ stockQuote(stock) ? (stockQuote(stock)!.closed ? '休盘' : (stockQuote(stock)!.changeRate != null ? '是' : '取数中')) : '否' }}</b></span>
+                      <span class="hd-cell hd-raw"><em>原始条目</em><b class="font-number">{{ stock.rawEntry || stock.stockCode }}</b></span>
+                    </div>
+                  </div>
+                </Transition>
+              </template>
             </div>
           </template>
           <template v-else-if="fundInfo && fundInfo.topHoldings && fundInfo.topHoldings.length > 0">
@@ -296,6 +313,9 @@ import { formatValuationTimeWithSeconds } from '@/shared/utils/date-format'
 import { formatProfitCompact, formatCompactMoney } from '@/shared/utils/money-format'
 import { useEstimatedHoldings } from '@/composables/use-estimated-holdings'
 import PendingPlanList from '@/components/shared/pending-plan-list.vue'
+import { classifyShare } from '@/shared/market/market-classify'
+import { EM_MARKET_LABEL } from '@/shared/market/em-market-map'
+import type { StockQuoteInfo } from '@/shared/types/common-types'
 
 use([LineChart, GridComponent, TooltipComponent, DataZoomComponent, MarkLineComponent, CanvasRenderer])
 
@@ -596,6 +616,7 @@ const {
   estimated: estimatedHoldings, isT2, loadEstimation, refreshFromCache,
   getPrevDayRate, prevDayClass, formatRate,
   getRealtimeRate, realtimeClass,
+  prevDayMap, realtimeMap,
 } = useEstimatedHoldings(fundCode, delayDays)
 
 const holdingsMode = ref<'close' | 'realtime'>('close')
@@ -607,6 +628,32 @@ function stockChange(stock: HoldingDetailItem): number | null {
 }
 function stockChangeClass(stock: HoldingDetailItem): string {
   return holdingsMode.value === 'close' ? prevDayClass(stock.stockCode) : realtimeClass(stock.stockCode)
+}
+
+// ===== 持仓行展开/收起 + 调试信息（临时：定位移动端 emCode 留空后是否大量落 Yahoo 导致涨跌慢）=====
+// 每只股的展开状态，key=stockCode。默认收起。
+const expandedStocks = ref<Set<string>>(new Set())
+function toggleStock(stockCode: string): void {
+  const s = new Set(expandedStocks.value)
+  if (s.has(stockCode)) s.delete(stockCode)
+  else s.add(stockCode)
+  expandedStocks.value = s
+}
+
+// 当前模式下该股的行情缓存项（含 source/market，供调试看走了哪个接口）
+function stockQuote(stock: HoldingDetailItem): StockQuoteInfo | undefined {
+  const map = holdingsMode.value === 'close' ? prevDayMap.value : realtimeMap.value
+  return map.get(stock.stockCode)
+}
+// 市场归属标签：emCode → EM_MARKET_LABEL 中文名（如 130→韩、1→沪）；无 emCode 显示"空(待补全)"
+function marketLabel(stock: HoldingDetailItem): string {
+  const em = stock.emMarketCode
+  if (!em) return '空(待补全)'
+  return EM_MARKET_LABEL[em] || em
+}
+// classifyShare 判定档位（A/HK/US/unknown），unknown 会走 Yahoo
+function shareClass(stock: HoldingDetailItem): string {
+  return classifyShare(stock.emMarketCode, stock.stockCode)
 }
 
 // 切换基金时重置模式
@@ -1013,6 +1060,27 @@ watch(fundCode, (code) => {
 .h-market { font-size: 11px; color: var(--text-muted); text-align: right; white-space: nowrap; }
 .h-rate { font-size: 12px; text-align: right; }
 .h-rate-wrap { display: inline-flex; align-items: center; justify-content: flex-end; gap: 3px; }
+.h-expand-arrow { color: var(--text-muted); transition: transform 0.2s ease; flex-shrink: 0; }
+.h-expand-arrow.open { transform: rotate(180deg); }
+.holdings-row { cursor: pointer; }
+
+/* 展开调试行 */
+.h-debug-row {
+  padding: 6px 10px 8px 38px;
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-surface);
+}
+.h-debug-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px 12px;
+}
+.hd-cell { display: flex; align-items: center; gap: 4px; font-size: 10px; min-width: 0; }
+.hd-cell em { color: var(--text-muted); font-style: normal; flex-shrink: 0; }
+.hd-cell b { color: var(--text-secondary); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hd-cell.hd-raw { grid-column: 1 / -1; }
+.hd-cell.hd-raw b { font-size: 10px; color: var(--text-muted); }
+.hd-warn { color: var(--color-fall) !important; }
 
 @media (max-width: 767px) {
   .detail-header { padding: var(--spacing-sm) var(--spacing-md); margin: var(--spacing-xs) var(--spacing-sm) 0; }
