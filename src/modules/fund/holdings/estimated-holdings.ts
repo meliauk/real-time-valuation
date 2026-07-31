@@ -62,12 +62,14 @@ export async function fetchEstimatedHoldings(
     // 是否有真实占比（移动端 API 成功）；pingzhong 兜底时 ratio=0，描述如实标注"无占比"
     const hasRatio = !fallbackUsed && top10.holdings.some(h => h.ratio > 0)
 
-    // ===== 市场归属补全：用 pingzhong stockCodesNew 的权威 emMarketCode 覆盖 mobile 的猜测 =====
-    // 缘由：mobile GPDM 是裸码，韩股 000660 会被 parseGpdm 误判深市 A 股 → 走东财腾讯取不到 → 涨跌缺失。
-    // pingzhong 的 stockCodesNew 带 emCode 前缀（如 130.000660）是权威市场归属。
+    // ===== 市场归属补全：用 pingzhong stockCodesNew 的权威 emMarketCode 填充 mobile 的空 emCode =====
+    // 缘由：mobile GPDM 是裸码，parseGpdm 不猜市场（emCode 恒为 ''）——韩股 000660 与深市 A 股撞码，
+    // 按位数猜必误判。pingzhong 的 stockCodesNew 带 emCode 前缀（如 130.000660、1.600519）是权威市场归属。
+    //   - pingzhong 匹配上 → 覆盖 emCode → classifyShare 走对应接口（A/HK/US→东财，其余海外→Yahoo）
+    //   - pingzhong 未匹配 → emCode 保持空 → classifyShare 返回 unknown → Yahoo Search
     //   - 详情页（有 preloaded）：同步补全（无 IO，复用预加载），补完即返回，首屏即正确。
     //   - 首页 bootstrap（无 preloaded）：立即返回未补全结果（首屏不阻塞），后台注入 script 补全，
-    //     设 holdingsEnrichedReady 让 store 写回缓存 + 触发 recompute（韩股随后自愈）。
+    //     设 holdingsEnrichedReady 让 store 写回缓存 + 触发 recompute（补全后自愈）。
     // pingzhong 兜底路径（fallbackUsed）的 holdings 已自带正确 emCode，无需再补。
     let holdingsEnrichedReady: Promise<void> | undefined
     if (!fallbackUsed) {
