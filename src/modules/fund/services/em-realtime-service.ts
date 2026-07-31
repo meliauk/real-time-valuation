@@ -111,7 +111,7 @@ async function runRelayLoop(): Promise<void> {
 async function tickOnce(): Promise<number> {
   const store = useFundStore()
 
-  // 首屏占位（幂等）：T+1（当日确认）基金 realtimeGszzl 置 0（标签「持仓预测」），让胶囊先显示，
+  // 首屏占位（幂等）：T+1（当日确认）基金 realtimeGszzl 置 0（标签「预测」），让胶囊先显示，
   // 持仓股票实时数据到位后由 recomputeFundsForStocks 覆盖为真实加权值。
   // 占位不设 realtimeUpdatedAt——下游据此（!realtimeUpdatedAt）判占位态加 loading 样式。
   // 放在 collectAHkAll 的 early return 之前，确保即使用户只有 T+1 基金、持仓暂未就绪时占位也执行。
@@ -123,7 +123,7 @@ async function tickOnce(): Promise<number> {
       if (!v || v.delayDays !== 1) continue
       if (v.realtimeGszzl == null) {
         v.realtimeGszzl = 0
-        v.realtimeSource = '持仓预测'
+        v.realtimeSource = '预测'
         changed = true
       }
     }
