@@ -81,6 +81,7 @@
           v-for="item in sortedWatchlist"
           :key="item.code"
           :class="['watchlist-card', watchTint(item)]"
+          @click="toggleCard(item.code)"
         >
           <div class="card-main">
             <div class="card-row">
@@ -101,37 +102,43 @@
               </span>
             </div>
           </div>
-          <!-- 行情扩展：今开/最高/最低 + 成交额/换手率/市盈率/市净率（海外股兜底无数据 → --） -->
-          <div class="card-stats">
-            <div class="stat-cell">
-              <span class="stat-label">今开</span>
-              <span class="stat-value font-number">{{ fmtPrice(item.open) }}</span>
-            </div>
-            <div class="stat-cell">
-              <span class="stat-label">成交额</span>
-              <span class="stat-value font-number">{{ fmtTurnover(item.turnover) }}</span>
-            </div>
-            <div class="stat-cell">
-              <span class="stat-label">最高</span>
-              <span class="stat-value font-number">{{ fmtPrice(item.high) }}</span>
-            </div>
-            <div class="stat-cell">
-              <span class="stat-label">换手率</span>
-              <span class="stat-value font-number">{{ fmtRate(item.turnoverRate) }}</span>
-            </div>
-            <div class="stat-cell">
-              <span class="stat-label">最低</span>
-              <span class="stat-value font-number">{{ fmtPrice(item.low) }}</span>
-            </div>
-            <div class="stat-cell">
-              <span class="stat-label">市盈率</span>
-              <span class="stat-value font-number">{{ fmtRatio(item.peRatio) }}</span>
-            </div>
-            <div class="stat-cell">
-              <span class="stat-label">市净率</span>
-              <span class="stat-value font-number">{{ fmtRatio(item.pbRatio) }}</span>
-            </div>
+          <!-- 展开提示：点击卡片切换今开/市盈率等扩展行情（默认收起） -->
+          <div class="card-expand-hint">
+            <svg :class="['expand-arrow', expandedCards.has(item.code) ? 'open' : '']" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
+          <!-- 行情扩展：今开/最高/最低 + 成交额/换手率/市盈率/市净率（海外股兜底无数据 → --） -->
+          <Transition name="card-expand">
+            <div v-if="expandedCards.has(item.code)" class="card-stats">
+              <div class="stat-cell">
+                <span class="stat-label">今开</span>
+                <span class="stat-value font-number">{{ fmtPrice(item.open) }}</span>
+              </div>
+              <div class="stat-cell">
+                <span class="stat-label">成交额</span>
+                <span class="stat-value font-number">{{ fmtTurnover(item.turnover) }}</span>
+              </div>
+              <div class="stat-cell">
+                <span class="stat-label">最高</span>
+                <span class="stat-value font-number">{{ fmtPrice(item.high) }}</span>
+              </div>
+              <div class="stat-cell">
+                <span class="stat-label">换手率</span>
+                <span class="stat-value font-number">{{ fmtRate(item.turnoverRate) }}</span>
+              </div>
+              <div class="stat-cell">
+                <span class="stat-label">最低</span>
+                <span class="stat-value font-number">{{ fmtPrice(item.low) }}</span>
+              </div>
+              <div class="stat-cell">
+                <span class="stat-label">市盈率</span>
+                <span class="stat-value font-number">{{ fmtRatio(item.peRatio) }}</span>
+              </div>
+              <div class="stat-cell">
+                <span class="stat-label">市净率</span>
+                <span class="stat-value font-number">{{ fmtRatio(item.pbRatio) }}</span>
+              </div>
+            </div>
+          </Transition>
         </div>
       </div>
     </section>
@@ -171,6 +178,15 @@ const settingsStore = useSettingsStore()
 const showSelector = ref(false) // unused now, kept for compatibility
 const showAddStock = ref(true)
 const stockInput = ref('')
+
+// 自选股卡片展开状态：key=code。默认收起，点击卡片切换今开/市盈率等扩展行情。
+const expandedCards = ref<Set<string>>(new Set())
+function toggleCard(code: string): void {
+  const s = new Set(expandedCards.value)
+  if (s.has(code)) s.delete(code)
+  else s.add(code)
+  expandedCards.value = s
+}
 const stockInputRef = ref<HTMLInputElement | null>(null)
 const addingStock = ref(false)
 const addError = ref('')
@@ -886,6 +902,7 @@ function fmtTurnover(v: number | undefined): string {
   border-left: 3px solid var(--border-default);
   background: var(--bg-surface);
   padding: var(--spacing-xs) var(--spacing-sm);
+  cursor: pointer;
   transition: transform 0.2s ease, background 0.3s ease;
 }
 .watchlist-card:hover { transform: translateY(-1px); }
@@ -922,15 +939,30 @@ function fmtTurnover(v: number | undefined): string {
 .s-amount.text-fall { color: var(--color-fall-light); }
 .s-amount.text-flat { color: var(--text-muted); }
 
-/* 行情扩展统计区：两列网格，填充半宽卡/手机整行空白 */
+/* 行情扩展统计区：两列网格，填充半宽卡/手机整行空白（默认收起，展开时显示） */
 .card-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 2px 12px;
-  margin-top: 6px;
   padding-top: 6px;
   border-top: 1px solid var(--border-default);
 }
+/* 展开提示箭头（默认收起态，点击卡片切换） */
+.card-expand-hint {
+  display: flex;
+  justify-content: center;
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+.expand-arrow { transition: transform 0.2s ease; opacity: 0.55; }
+.expand-arrow.open { transform: rotate(180deg); opacity: 0.9; }
+/* 卡片展开过渡 */
+.card-expand-enter-active, .card-expand-leave-active {
+  transition: all 0.22s ease;
+  overflow: hidden;
+}
+.card-expand-enter-from, .card-expand-leave-to { max-height: 0; opacity: 0; padding-top: 0; }
+.card-expand-enter-to, .card-expand-leave-from { max-height: 240px; opacity: 1; }
 .stat-cell {
   display: flex;
   align-items: baseline;
