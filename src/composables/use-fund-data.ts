@@ -116,17 +116,27 @@ export function useFundData() {
           ? (totalReturnRate > 0 ? 'profit' : totalReturnRate < 0 ? 'loss' : 'flat')
           : 'flat'
 
+        // 推算持仓缓存（T+1/T+2 同源）：供 hasTodayData 判定 + 实时胶囊占比判定共用。
+        const estHoldings = fundStore.estimatedHoldingsCache.get(code)?.data
+
         // 是否有今日涨跌数据：与详情页 currentGszzl(=gszzl) 口径一致——
         // 有非零估算涨跌、或有盘中估算 gztime、或今日确认净值已出，任一即显示今日涨跌；
         // 全无（fundgz/新浪失败且确认未出）才显示 -- 而非 0.00%。
-        // 旧逻辑仅认 gztime/jzrq，T+2 fundgz 失败但有 pingzhongdata 推算 gszzl 时会误显 --，
-        // 与详情页(直接显 gszzl)不一致，故放宽为 gszzl≠0 也算有数据。
-        const hasTodayData = gszzl !== 0 || (!!v?.gztime) || (v?.jzrq != null && v.jzrq >= expectedConfirmDate)
+        // T+2 未确认时今日涨跌来自持仓股票加权推算（recomputeFundsForStocks）：
+        // 只要持仓缓存存在即视为"有数据可算"——推算出来是 0（涨跌互抵）也显示 0.00%，
+        // 不再用 gszzl!==0 卡 --（旧逻辑会把真实推算 0 误判为无数据显示 --，与详情页不一致）。
+        // T+2 一只持仓股昨收都拿不到的极端情况会推算为 0，仍显 0.00%——可接受（比长时间 -- 体感好），
+        // loop 取到数据后 recompute 覆盖为真实值。
+        const hasHoldingsForEstimate = v?.delayDays === 2
+          ? !!estHoldings && estHoldings.holdings.length > 0
+          : false
+        const hasTodayData = gszzl !== 0 || (!!v?.gztime)
+          || (v?.jzrq != null && v.jzrq >= expectedConfirmDate)
+          || hasHoldingsForEstimate
 
-        // 持仓占比是否有效：读推算持仓缓存（T+1/T+2 同源），任一项 ratio>0 即有效。
+        // 持仓占比是否有效：读推算持仓缓存，任一项 ratio>0 即有效。
         // 与详情页 hasHoldingsRatio(displayHoldings.holdings.some(h=>h.ratio>0)) 同口径，
         // 供实时胶囊按新口径决定「实时」是否显示。
-        const estHoldings = fundStore.estimatedHoldingsCache.get(code)?.data
         const hasHoldingsRatio = !!estHoldings && estHoldings.holdings.some(h => (h.ratio ?? 0) > 0)
 
         return {
