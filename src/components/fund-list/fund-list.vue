@@ -343,6 +343,7 @@ const SORT_FIELDS: SortFieldOption[] = [
   { label: '持有金额',   field: 'holdingAmount' },
   { label: '今日收益',   field: 'todayProfit' },
   { label: '今日收益率', field: 'changeRate' },
+  { label: '预测涨跌幅', field: 'realtimeGszzl' },
   { label: '累计收益',   field: 'totalProfit' },
   { label: '累计收益率', field: 'totalReturnRate' },
 ]
