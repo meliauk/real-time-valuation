@@ -42,6 +42,12 @@ export const useHoldingStore = defineStore('holding', () => {
   const actions = ref<HoldingAction[]>([])
   /** T+1 待确认操作列表 */
   const pendingActions = ref<PendingAction[]>([])
+  /** 是否已从 localStorage 恢复完成。
+   *  ⚠️ 落盘兜底（flushAllPersist / persistHoldings）的覆盖守卫：版本检查器强制刷新可能在
+   *  restoreHoldings() 完成前触发 beforeunload，此时内存 holdings 还是初始空数组，若直接落盘会
+   *  把空数组写入 HOLDINGS 覆盖盘上真实持仓——用户录入的基金持仓就此丢失。restore 完成前置此标记
+   *  为 false，所有写盘入口见之即跳过；宁可丢这一轮兜底，也不让空内存覆盖好数据。 */
+  let restored = false
 
   // ===== 计算属性 =====
   /** 活跃持仓（未结算） */
@@ -522,6 +528,8 @@ export const useHoldingStore = defineStore('holding', () => {
   // ===== 持久化（防抖 + 兜底） =====
   let persistHoldingsTimer: ReturnType<typeof setTimeout> | null = null
   function persistHoldings(): void {
+    // 恢复未完成时跳过：避免空 holdings 被防抖定时器写入覆盖盘上真实持仓
+    if (!restored) return
     if (persistHoldingsTimer) clearTimeout(persistHoldingsTimer)
     persistHoldingsTimer = setTimeout(() => {
       saveJSON(STORAGE_KEYS.HOLDINGS, holdings.value)
@@ -573,10 +581,17 @@ export const useHoldingStore = defineStore('holding', () => {
       a.status === PendingActionStatus.Pending ||
       (a.executedAt != null && a.executedAt > cutoff),
     )
+    // 三项恢复（holdings/actions/pendingActions）在 fund-bootstrap 内同步连续调用，
+    // 本函数总是最后一个完成——此处置 restored=true，确保兜底/防抖落盘守卫在此之后才放行，
+    // 避免刷新风暴在恢复中途用空内存覆盖盘上真实数据。
+    restored = true
   }
 
   /** 页面关闭前兜底写入 */
   function flushAllPersist(): void {
+    // 恢复未完成时跳过兜底：版本检查刷新风暴可能在此刻打断，空内存一旦落盘即覆盖真实持仓。
+    // 宁可丢这一轮兜底（盘上数据仍在），也不让空数组覆盖好数据。
+    if (!restored) return
     if (persistHoldingsTimer) { clearTimeout(persistHoldingsTimer); persistHoldingsTimer = null }
     saveJSON(STORAGE_KEYS.HOLDINGS, holdings.value)
     saveJSON(STORAGE_KEYS.HOLDING_ACTIONS, actions.value)
