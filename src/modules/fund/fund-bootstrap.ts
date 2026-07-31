@@ -73,16 +73,19 @@ export async function startFundModule(): Promise<void> {
   // 2. 预热目录（不阻塞首屏）：void 异步加载，getFundType 内部 await fetchFundCodeCatalog 会共享
   //    同一个 catalogPromise（去重），目录就绪后自动命中缓存。首屏已由 seedFromCache 显示缓存数据，
   //    不必等目录下载完才继续——目录未就绪时 getFundType 回退搜索接口兜底。
-  void fetchFundCodeCatalog().catch(() => { /* 不阻塞 */ })
-
-  // 2.5 从目录补充关注基金名称（fundgz 失败的基金也能显示真名）
-  // 目录异步加载中，getCatalogFundName 暂返回空（cachedCatalog 未就绪），目录到位后下次刷新补全。
-  for (const code of store.fundCodes) {
-    if (!store.getFundName(code)) {
-      const name = getCatalogFundName(code)
-      if (name) store.setFundName(code, name)
-    }
-  }
+  // 2.5 目录就绪后从目录补充关注基金名称：fundgz 失败（尤其 QDII/T+2 新浪无盘中估值）的基金只能靠目录拿真名。
+  //    ⚠️ 不能只靠"下次估值刷新补全"——fund-valuation-merge 在 fundgz 失败时会用 typeAndName.fundName
+  //    兜底写 result.name，但若目录此刻仍未就绪，getFundType 回退搜索接口可能也失败，名称仍空。
+  //    此处等目录 resolve 后立即遍历补名，首屏即补全，无需等定时刷新；已恢复缓存名的跳过。
+  void fetchFundCodeCatalog()
+    .then(() => {
+      for (const code of store.fundCodes) {
+        if (store.getFundName(code)) continue
+        const name = getCatalogFundName(code)
+        if (name) store.setFundName(code, name)
+      }
+    })
+    .catch(() => { /* 目录失败不阻塞，名称留待估值刷新兜底 */ })
 
   // 3. 估值刷新——走 refreshAllValuations（含 batchGetValuation + T+2 防闪烁合并 + 保留 realtime
   //    + 存盘 + 持仓累计同步 + refreshStatus 管理，与定时刷新同链路）。首屏已由 seedFromCache 显示
