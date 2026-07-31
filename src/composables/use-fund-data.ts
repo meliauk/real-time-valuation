@@ -8,6 +8,7 @@
 import { computed } from 'vue'
 import { useFundStore } from '@/modules/fund/fund-store'
 import { useHoldingStore } from '@/modules/holding/holding-store'
+import { useSettingsStore } from '@/modules/settings/settings-store'
 import type { IntradayPoint } from '@/modules/fund/fund-types'
 import type { SortField } from '@/modules/fund/fund-types'
 import { ChangeDirection } from '@/config/enums'
@@ -66,6 +67,7 @@ function computeIntradayBase(v: { dwjz: number; delayDays?: 1 | 2; gztime?: stri
 export function useFundData() {
   const fundStore = useFundStore()
   const holdingStore = useHoldingStore()
+  const settingsStore = useSettingsStore()
 
   /** 基金行数据列表 */
   const fundRows = computed<FundRowData[]>(() => {
@@ -148,12 +150,14 @@ export function useFundData() {
           hasTodayData,
           hasHoldingsRatio,
           delayDays: v?.delayDays ?? 1,
-          realtimeGszzl: v?.realtimeGszzl,
-          realtimeSource: v?.realtimeSource,
-          realtimeUpdatedAt: v?.realtimeUpdatedAt,
+          // enablePrediction=false 时 recompute 不再推算 realtimeGszzl；透出 undefined 让胶囊/排序无值，
+          // 防 valuationMap 残留开关关闭前的旧预测值导致胶囊仍显示。
+          realtimeGszzl: settingsStore.enablePrediction ? v?.realtimeGszzl : undefined,
+          realtimeSource: settingsStore.enablePrediction ? v?.realtimeSource : undefined,
+          realtimeUpdatedAt: settingsStore.enablePrediction ? v?.realtimeUpdatedAt : undefined,
           // 占位态：em-realtime(yahoo) 首屏置 realtimeGszzl=0、source 为占位标签、未设 realtimeUpdatedAt。
           // 数据到位 recompute 后会设 realtimeUpdatedAt——据此区分占位/真实。
-          realtimePlaceholder: v?.realtimeGszzl === 0 && !v?.realtimeUpdatedAt &&
+          realtimePlaceholder: settingsStore.enablePrediction && v?.realtimeGszzl === 0 && !v?.realtimeUpdatedAt &&
             v?.realtimeSource === '预测',
           intradayPoints: fundStore.intradayMap[code] || [],
           intradayBaseValue: computeIntradayBase(v),
