@@ -101,7 +101,7 @@ async function tickOnce(): Promise<boolean> {
       if (!v || v.delayDays !== 2) continue
       if (v.realtimeGszzl == null) {
         v.realtimeGszzl = 0
-        v.realtimeSource = '预测'
+        v.realtimeSource = '实时'
         changed = true
       }
     }
