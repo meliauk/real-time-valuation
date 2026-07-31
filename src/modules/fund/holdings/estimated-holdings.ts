@@ -51,7 +51,7 @@ export async function fetchEstimatedHoldings(
 
   // 占比数据：优先东财移动端 API（FundMNInverstPosition，浏览器 fetch 可直连，含代码+名称+占比），
   // 失败回退 pingzhong stockCodesNew（仅代码、名称由腾讯报价回填、占比 0）。
-  // 有了占比即可做持仓股票加权推算实时预测（computeEstimatedGszzlFromPrevDay 用 ratio×changeRate）。
+  // 有了占比即可做持仓股票加权推算实时涨跌（computeEstimatedGszzlFromPrevDay 用 ratio×changeRate）。
   let top10: FundAllHoldings | null = await fetchTop10FromMobileApi(fundCode)
   let fallbackUsed = false
   if (!top10 || top10.holdings.length === 0) {
@@ -91,12 +91,20 @@ export async function fetchEstimatedHoldings(
       }
     }
 
+    // 前十大均为真实披露（非推算），原地打 isEstimated=false（不再 .map 出新数组）：
+    // 关键——异步补全路径改的是 top10.holdings 原数组（enrichMarketCodeFromPingzhong 就地改 emMarketCode），
+    // return 必须直接引用同一份 top10.holdings，否则补全改的是 A 数组、缓存/展示读的是 B 数组（.map 出的新数组），
+    // 异步补全结果永远写不进缓存 → 所有股 emMarketCode 恒为空 → 全部落 unknown/Yahoo。
+    for (const h of top10.holdings) {
+      if (!('isEstimated' in h)) (h as EstimatedHoldingItem).isEstimated = false
+    }
+
     return {
       fundCode,
       quarterReportDate: top10.reportDate,
       annualReportDate: '',
       description: hasRatio ? '前十大重仓及占比' : '前十大重仓（无占比，无法加权推算）',
-      holdings: top10.holdings.map(h => ({ ...h, isEstimated: false })),
+      holdings: top10.holdings as EstimatedHoldingItem[],
       optimizationMeta: { method: 'proportional-scaling', navDaysUsed: 0, stockCoverage: 0 },
       holdingsEnrichedReady,
     }
