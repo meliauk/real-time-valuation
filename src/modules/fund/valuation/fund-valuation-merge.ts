@@ -51,12 +51,15 @@ export async function getFundValuation(
   // 两者都失败
   if (!gzResult && !lsjzResult) return null
 
+  // 名称：优先 fundgz(新浪)实时名，空则用目录/搜索兜底名(typeAndName.fundName)。
+  //   fundgz 失败（尤其 QDII/T+2 新浪无盘中估值）时 typeAndName.fundName 是唯一真名来源——若不补进
+  //   result.name，refreshAllValuations 里 stripPlaceholderName 会把占位符"基金(code)"过滤为空、
+  //   不写 fundNameMap，导致清缓存后(FUND_NAMES+FUND_CACHE.fundName 同被删)名称再也恢复不了。
   const fundName = gzResult?.name || typeAndName.fundName || ''
   const delayDays = detectDelayDays(typeAndName.fundType)
 
   // 构建基础 result：fundgz 成功用估算数据，失败时仅从 lsjz 填充 dwjz/jzrq
   // gszzl/gz 设0：无估算数据时不显示过期涨跌，UI 直接显示0
-  // name：fundgz 成功用其 name，失败时用"基金(code)"兜底（名称后续可由 catalog 补全）
   const result: FundValuation = gzResult
     ? { ...gzResult, isEstimated: true }
     : {
@@ -70,6 +73,11 @@ export async function getFundValuation(
         isEstimated: true,
       }
   result.delayDays = delayDays
+  // 名称兜底：fundgz 失败(占位符)或新浪返回空名时，用算出的 fundName(含目录兜底)覆盖 result.name，
+  //   使 stripPlaceholderName 能拿到真名写回 fundNameMap，resolveFundName 也能直接命中。
+  if ((!result.name || result.name === `基金(${fundCode})`) && fundName) {
+    result.name = fundName
+  }
 
   // 昨日净值：按 delayDays 严格取滞后 N 个交易日的确认净值
   fillPrevConfirmedNav(result, lsjzResult, delayDays)
