@@ -32,7 +32,7 @@ let heartbeatTimer: ReturnType<typeof setTimeout> | null = null
 let closedSnapshotTaken = false
 /** 上次快照的交易日，跨日重置 closedSnapshotTaken（节后首个交易日需重新取收盘快照） */
 let lastSnapshotDay = ''
-/** T+1 预测胶囊首屏占位是否已置（幂等）。T+1 基金持仓 A/HK 股由本服务取数，
+/** T+1 实时胶囊首屏占位是否已置（幂等）。T+1 基金持仓 A/HK 股由本服务取数，
  *  占位放此而非 yahoo（yahoo 主碰海外股）。重启/跨日重置为 false。 */
 let placeholderSet = false
 
@@ -51,7 +51,7 @@ export function startEmRealtimeLoop(): void {
   loopRunning = true
   closedSnapshotTaken = false  // 启动重置：可能跨日/重启，重新取收盘快照
   lastSnapshotDay = ''
-  placeholderSet = false       // 启动重置：T+1 预测占位重跑（跨日/重建后需重新占位）
+  placeholderSet = false       // 启动重置：T+1 实时占位重跑（跨日/重建后需重新占位）
   void runRelayLoop()
 }
 
@@ -111,7 +111,7 @@ async function runRelayLoop(): Promise<void> {
 async function tickOnce(): Promise<number> {
   const store = useFundStore()
 
-  // 首屏占位（幂等）：T+1（当日确认）基金 realtimeGszzl 置 0（标签「预测」），让胶囊先显示，
+  // 首屏占位（幂等）：T+1（当日确认）基金 realtimeGszzl 置 0（标签「实时」），让胶囊先显示，
   // 持仓股票实时数据到位后由 recomputeFundsForStocks 覆盖为真实加权值。
   // 占位不设 realtimeUpdatedAt——下游据此（!realtimeUpdatedAt）判占位态加 loading 样式。
   // 放在 collectAHkAll 的 early return 之前，确保即使用户只有 T+1 基金、持仓暂未就绪时占位也执行。
@@ -123,7 +123,7 @@ async function tickOnce(): Promise<number> {
       if (!v || v.delayDays !== 1) continue
       if (v.realtimeGszzl == null) {
         v.realtimeGszzl = 0
-        v.realtimeSource = '预测'
+        v.realtimeSource = '实时'
         changed = true
       }
     }
