@@ -49,6 +49,9 @@ export async function startFundModule(): Promise<void> {
 
   // 双全局缓存（跨日校验，非今日丢弃）
   store.restoreStockCaches()
+  // 推算持仓缓存（今日戳校验，跨日丢弃）——recompute 依赖它算 gszzl/realtimeGszzl，无持仓则算不出。
+  // 必须在 seedFromCache 之前恢复，seedFromCache 后的 recompute 才有持仓底数。
+  store.restoreEstimatedHoldingsCache()
   // T+2 推算估值涨跌幅缓存（美股基准日校验，跨日丢弃）——必须在 seedFromCache 之前恢复，
   // seedFromCache 据此回填 T+2 未确认基金的 gszzl，避免重启首屏长时间 --（要等 loop 重算）
   store.restoreEstimatedGszzlMap()
@@ -61,6 +64,11 @@ export async function startFundModule(): Promise<void> {
   cacheStore.restoreCache()
   cacheStore.clearExpiredCache()
   store.seedFromCache(cacheStore.cacheMap)
+
+  // 缓存恢复后立即触发一次 recompute：用已恢复的 stockPrevDayCache/stockRealtimeCache + 持仓缓存，
+  // 把缓存的股票涨跌加权喂进 valuationMap 的 gszzl/realtimeGszzl——重启首屏即有值，不等 loop 重算。
+  // （seedFromCache 已恢复的 valuation 若带了上次的 realtimeGszzl，此处会按最新缓存重新加权覆盖）
+  store.recomputeAllFromCache()
 
   if (store.fundCodes.length === 0) return
 
