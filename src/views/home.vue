@@ -23,7 +23,6 @@
           </svg>
         </div>
         <h1 class="logo">基攻宝</h1>
-        <span class="logo-sub">实时基金估值</span>
       </div>
       <div class="header-right">
         <SearchBar />
