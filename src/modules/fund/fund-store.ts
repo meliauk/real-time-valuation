@@ -362,10 +362,10 @@ export const useFundStore = defineStore('fund', () => {
         }
       }
       // 实时加权 → realtimeGszzl（头部胶囊）。确认后也推算——实时估算是独立展示需求。
-      // 胶囊标签按确认类型区分（替代旧的 T+1「预测」/T+2「实时」二分，措辞更准确）：
-      //   - 当日确认（原 T+1）：基金有 fundgz 官方盘中估值作主值，胶囊是持仓股票实时加权 → 「持仓预测」
-      //   - 次日确认（原 T+2）：无盘中估值，胶囊是唯一实时推算（今日市场数据，美股含盘前/盘中/盘后）→ 「实时推算」
-      const rtLabel = v.delayDays === 1 ? '持仓预测' : '实时推算'
+      // 胶囊标签统一为「预测」（持仓股票实时加权推算）；后端仍按确认类型区分计算口径：
+      //   - 当日确认（原 T+1）：基金有 fundgz 官方盘中估值作主值，胶囊是持仓股票实时加权
+      //   - 次日确认（原 T+2）：无盘中估值，胶囊是唯一实时推算（今日市场数据，美股含盘前/盘中/盘后）
+      const rtLabel = '预测'
       const realtimeMapForFund = new Map<string, StockQuoteInfo>()
       let allHoldingsCached = true  // 是否每只持仓都有缓存条目（用于判全休市）
       for (const h of holdings) {
