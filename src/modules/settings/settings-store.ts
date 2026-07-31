@@ -43,6 +43,9 @@ export interface UserSettings {
   showSearchGlow: boolean
   enableGlassEffect: boolean
   enableManagerCheck: boolean
+  /** 开启预测涨跌幅：true=拉取持仓股行情并加权推算盘中预测涨跌（详情页胶囊+列表「预测涨跌幅」排序）；
+   *  false=完全不做推算（不拉持仓股行情、不算 realtimeGszzl），省网络和算力。 */
+  enablePrediction: boolean
   privacy: PrivacySettings
 }
 
@@ -62,6 +65,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   showSearchGlow: false,
   enableGlassEffect: false,
   enableManagerCheck: true,
+  enablePrediction: true,
   privacy: {
     holding: true, todayProfit: true, todayRate: true, totalProfit: true, totalRate: true,
   },
@@ -104,6 +108,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const showSearchGlow = ref<boolean>(stored.showSearchGlow ?? DEFAULT_SETTINGS.showSearchGlow)
   const enableGlassEffect = ref<boolean>(stored.enableGlassEffect ?? DEFAULT_SETTINGS.enableGlassEffect)
   const enableManagerCheck = ref<boolean>(stored.enableManagerCheck ?? DEFAULT_SETTINGS.enableManagerCheck)
+  const enablePrediction = ref<boolean>(stored.enablePrediction ?? DEFAULT_SETTINGS.enablePrediction)
   const privacy = ref<PrivacySettings>(migratePrivacy(stored.privacy as Record<string, boolean> | undefined))
 
   function toObject(): UserSettings {
@@ -115,7 +120,8 @@ export const useSettingsStore = defineStore('settings', () => {
       newsAutoRefresh: newsAutoRefresh.value, overseasNews: overseasNews.value,
       newsRefreshInterval: newsRefreshInterval.value, showPageMarquee: showPageMarquee.value,
       showSearchGlow: showSearchGlow.value, enableGlassEffect: enableGlassEffect.value,
-      enableManagerCheck: enableManagerCheck.value, privacy: { ...privacy.value },
+      enableManagerCheck: enableManagerCheck.value, enablePrediction: enablePrediction.value,
+      privacy: { ...privacy.value },
     }
   }
 
@@ -126,7 +132,8 @@ export const useSettingsStore = defineStore('settings', () => {
   // 字段变化自动持久化
   const fields = [theme, autoRefresh, marketAutoRefresh, sectorAutoRefresh, refreshInterval,
     marketRefreshInterval, sectorRefreshInterval, reduceMotion, newsAutoRefresh, overseasNews,
-    newsRefreshInterval, showPageMarquee, showSearchGlow, enableGlassEffect, enableManagerCheck]
+    newsRefreshInterval, showPageMarquee, showSearchGlow, enableGlassEffect, enableManagerCheck,
+    enablePrediction]
   for (const field of fields) watch(field, () => persist(), { deep: false })
   watch(privacy, () => persist(), { deep: true })
 
@@ -146,6 +153,7 @@ export const useSettingsStore = defineStore('settings', () => {
     showSearchGlow.value = DEFAULT_SETTINGS.showSearchGlow
     enableGlassEffect.value = DEFAULT_SETTINGS.enableGlassEffect
     enableManagerCheck.value = DEFAULT_SETTINGS.enableManagerCheck
+    enablePrediction.value = DEFAULT_SETTINGS.enablePrediction
     privacy.value = { ...DEFAULT_SETTINGS.privacy }
   }
 
@@ -183,7 +191,7 @@ export const useSettingsStore = defineStore('settings', () => {
     theme, autoRefresh, marketAutoRefresh, sectorAutoRefresh, refreshInterval,
     marketRefreshInterval, sectorRefreshInterval, reduceMotion, newsAutoRefresh,
     overseasNews, newsRefreshInterval, showPageMarquee, showSearchGlow,
-    enableGlassEffect, enableManagerCheck, privacy,
+    enableGlassEffect, enableManagerCheck, enablePrediction, privacy,
     toObject, persist, resetToDefaults, initTheme, toggleTheme, applyTheme,
     privacyState, showAllPrivacy, hideAllPrivacy,
   }
