@@ -280,6 +280,53 @@ export const useFundStore = defineStore('fund', () => {
     saveString(STORAGE_KEYS.ESTIMATED_GSZZL_DATE, getBaseDay())
   }
 
+  /** 恢复推算持仓缓存（重启首屏预热）。
+   *  recompute 依赖持仓算 gszzl/realtimeGszzl，无持仓则算不出 → 首屏 --。恢复后配合已恢复的
+   *  股票涨跌缓存即可立即 recompute 出值。日期戳用今日（北京自然日，与 getEstimatedHoldings 缓存校验一致）。
+   *  ⚠️ EstimatedHoldings 的 stockQuoteMap(Map)/stockQuotesReady(Promise)/holdingsEnrichedReady(Promise)
+   *  不可序列化，落盘时已丢；恢复后这些字段为 undefined——recompute 不需要它们（只用 holdings 的 ratio）。 */
+  function restoreEstimatedHoldingsCache(): void {
+    const date = loadString(STORAGE_KEYS.ESTIMATED_HOLDINGS_DATE)
+    if (date !== getTodayStr()) {
+      removeKey(STORAGE_KEYS.ESTIMATED_HOLDINGS_CACHE)
+      removeKey(STORAGE_KEYS.ESTIMATED_HOLDINGS_DATE)
+      return
+    }
+    const raw = loadJSON<Record<string, { data: EstimatedHoldings; cachedDate: string }> | null>(STORAGE_KEYS.ESTIMATED_HOLDINGS_CACHE, null)
+    if (raw && typeof raw === 'object') {
+      const map = new Map<string, EstimatedCacheEntry>()
+      for (const [code, entry] of Object.entries(raw)) {
+        if (entry?.data?.holdings?.length) {
+          // 不可序列化字段恢复为 undefined（落盘时已丢，recompute 不需要）
+          entry.data.stockQuoteMap = undefined
+          entry.data.stockQuotesReady = undefined
+          entry.data.holdingsEnrichedReady = undefined
+          map.set(code, { data: entry.data, cachedDate: date })
+        }
+      }
+      estimatedHoldingsCache.value = map
+    }
+  }
+
+  /** 持久化推算持仓缓存（摊成普通对象，带今日戳）。
+   *  getEstimatedHoldings 取到/补全后调用，供下次重启恢复。 */
+  function persistEstimatedHoldingsCache(): void {
+    const obj: Record<string, { data: EstimatedHoldings; cachedDate: string }> = {}
+    for (const [code, entry] of estimatedHoldingsCache.value) {
+      // 落盘时丢弃不可序列化字段（stockQuoteMap/Ready/EnrichedReady），JSON.stringify 自动忽略 Promise，
+      // 但 Map 会序列化成 {}（空），显式置空更清晰
+      const data: EstimatedHoldings = {
+        ...entry.data,
+        stockQuoteMap: undefined,
+        stockQuotesReady: undefined,
+        holdingsEnrichedReady: undefined,
+      }
+      obj[code] = { data, cachedDate: entry.cachedDate }
+    }
+    saveJSON(STORAGE_KEYS.ESTIMATED_HOLDINGS_CACHE, obj)
+    saveString(STORAGE_KEYS.ESTIMATED_HOLDINGS_DATE, getTodayStr())
+  }
+
   /** 恢复盘中分时点缓存（仅当日写入有效，跨日丢弃重生成，避免首屏缩略图空白） */
   function restoreIntradayMap(): void {
     if (loadString(STORAGE_KEYS.INTRADAY_MAP_DATE) !== getTodayStr()) return
@@ -427,7 +474,38 @@ export const useFundStore = defineStore('fund', () => {
         v.realtimeUpdatedAt = beijingNow().format('HH:mm')
       }
       valuationMap.value.set(fundCode, v) // 触发响应式
+      // 同步落盘本基金最新估值（含 recompute 写入的 realtimeGszzl/推算 gszzl）到 FUND_CACHE，
+      // 供下次重启 seedFromCache 恢复实时胶囊 + T+2 今日涨跌。saveCache 自带 2s 防抖，高频 recompute 不疯狂 IO。
+      // fundName/info 从已有缓存条目取（无则用 fundNameMap/空），避免 recompute 里重复解析名称。
+      const cs = useCacheStore()
+      const existing = cs.getCache(fundCode)
+      cs.saveCache({
+        fundCode,
+        fundName: existing?.fundName || getFundName(fundCode) || '',
+        valuation: v,
+        info: existing?.info ?? null,
+        cachedAt: Date.now(),
+        cachedDate: getTodayStr(),
+      })
     }
+  }
+
+  /** 启动恢复缓存后，用已恢复的 stockPrevDayCache/stockRealtimeCache + estimatedHoldingsCache
+   *  立即重算所有基金的 gszzl/realtimeGszzl——重启首屏即有值，不等 service loop 第一轮取数。
+   *  collectMissingStocks 的反面：loop 是"收集缺失股→取数→merge→recompute"，此处缓存已在内存，
+   *  直接把所有持仓股 code 喂 recompute 即可（recompute 内部按缓存有无加权，无缓存的股跳过）。 */
+  function recomputeAllFromCache(): void {
+    const allStockCodes = new Set<string>()
+    const today = getTodayStr()
+    for (const [, entry] of estimatedHoldingsCache.value) {
+      if (entry.cachedDate !== today) continue
+      for (const h of entry.data.holdings) {
+        allStockCodes.add(h.stockCode)
+        allStockCodes.add(normalizeStockCodeTencent(h.stockCode).code)
+      }
+    }
+    if (allStockCodes.size === 0) return
+    void recomputeFundsForStocks(allStockCodes)
   }
 
   // ===== 推算持仓取数（带缓存+LRU+去重）=====
@@ -450,6 +528,7 @@ export const useFundStore = defineStore('fund', () => {
         const est = await fetchEstimatedHoldings(fundCode, undefined, fetchStockQuotes, preloaded)
         if (est) {
           lruSet(estimatedHoldingsCache.value, fundCode, { data: est, cachedDate: today }, MAX_ESTIMATED_CACHE)
+          persistEstimatedHoldingsCache()  // 落盘供下次重启恢复（recompute 依赖持仓算 gszzl/realtimeGszzl）
           // 推算过程已拉取的股票行情写入全局缓存，避免重复请求
           if (est.stockQuoteMap && est.stockQuoteMap.size > 0) {
             void mergeStockQuotesToCache(est.stockQuoteMap, est.holdings)
@@ -469,6 +548,7 @@ export const useFundStore = defineStore('fund', () => {
               try {
                 // 写回补全后的持仓（覆盖首屏占位的错误市场缓存），供下一轮 collectMissingStocks 按新 emCode 分流
                 lruSet(estimatedHoldingsCache.value, fundCode, { data: est, cachedDate: getTodayStr() }, MAX_ESTIMATED_CACHE)
+                persistEstimatedHoldingsCache()  // 补全后落盘，下次重启恢复的是补全后版本
                 // 清掉按错误深市 key 写入的脏涨跌缓存（若有），避免 recompute 仍取到旧误判值
                 for (const h of est.holdings) {
                   const nc = normalizeStockCodeTencent(h.stockCode).code
@@ -532,6 +612,7 @@ export const useFundStore = defineStore('fund', () => {
   function setEstimatedHoldingsCache(fundCode: string, data: EstimatedHoldings): void {
     const today = getTodayStr()
     lruSet(estimatedHoldingsCache.value, fundCode, { data, cachedDate: today }, MAX_ESTIMATED_CACHE)
+    persistEstimatedHoldingsCache()  // 详情页补全后落盘，下次重启恢复补全后版本
   }
 
   // ===== collectMissing：供 service 收集缺失股（三档分流）=====
@@ -766,9 +847,14 @@ export const useFundStore = defineStore('fund', () => {
       lastRefreshDate.value = getBaseDay()
 
       // 写缓存（下次启动预热）
+      // ⚠️ valuation 从 valuationMap 取（而非 result）：recompute 在 loop 后台把 realtimeGszzl/推算 gszzl
+      // 写进了 valuationMap，result 是 batchGetValuation 的原始结果不含这些字段。存 result 会导致重启
+      // seedFromCache 恢复的 valuation 无 realtimeGszzl → 实时胶囊重启空白 --。故取 valuationMap 的最终版本。
       const cacheStore = useCacheStore()
       const caches: FundCache[] = []
-      for (const [code, valuation] of result) {
+      for (const code of refreshedCodes) {
+        const valuation = valuationMap.value.get(code)
+        if (!valuation) continue
         const existingCache = cacheStore.getCache(code)
         // 多源填充名称：估值接口拿到的非占位名写回 fundNameMap（fundgz 成功才有真名）
         const realName = stripPlaceholderName(valuation.name, code)
@@ -841,6 +927,8 @@ export const useFundStore = defineStore('fund', () => {
     estimatedGszzlMap.value = new Map()
     removeKey(STORAGE_KEYS.ESTIMATED_GSZZL_CACHE)
     removeKey(STORAGE_KEYS.ESTIMATED_GSZZL_DATE)
+    removeKey(STORAGE_KEYS.ESTIMATED_HOLDINGS_CACHE)
+    removeKey(STORAGE_KEYS.ESTIMATED_HOLDINGS_DATE)
     intradayMap.value = {}
     lastRefreshDate.value = getBaseDay()
   }
@@ -856,6 +944,8 @@ export const useFundStore = defineStore('fund', () => {
     estimatedGszzlMap.value = new Map()
     removeKey(STORAGE_KEYS.ESTIMATED_GSZZL_CACHE)
     removeKey(STORAGE_KEYS.ESTIMATED_GSZZL_DATE)
+    removeKey(STORAGE_KEYS.ESTIMATED_HOLDINGS_CACHE)
+    removeKey(STORAGE_KEYS.ESTIMATED_HOLDINGS_DATE)
     intradayMap.value = {}
     fundNameMap.value = {}
     valuationMap.value = new Map()
@@ -983,6 +1073,8 @@ export const useFundStore = defineStore('fund', () => {
     restoreFundCodes, restoreFundNames, persistFundCodes, restoreStockCaches,
     persistStockPrevDayCache, persistStockRealtimeCache, restoreIntradayMap,
     restoreEstimatedGszzlMap, persistEstimatedGszzlMap,
+    restoreEstimatedHoldingsCache, persistEstimatedHoldingsCache,
+    recomputeAllFromCache,
     // merge/recompute
     mergeStockQuotesToCache, mergeRealtimeToCache, recomputeFundsForStocks,
     // 持仓取数
