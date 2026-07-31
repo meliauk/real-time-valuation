@@ -114,7 +114,7 @@ export async function startFundModule(): Promise<void> {
   await Promise.all(t2Funds.map(async (code) => {
     try { await store.getEstimatedHoldings(code, async () => new Map()) } catch { /* 单只失败不影响 */ }
   }))
-  // T+1 基金：同时预取推算持仓（estimatedHoldingsCache，喂预测胶囊，与 T+2 同口径）
+  // T+1 基金：同时预取推算持仓（estimatedHoldingsCache，喂实时胶囊，与 T+2 同口径）
   //   和全量持仓（t1HoldingsCache，喂持仓透视表展示，全量明细）。
   //   胶囊取数 collect*/recompute 读 estimatedHoldingsCache；透视表 use-estimated-holdings 读 t1HoldingsCache。
   const t1Funds = store.fundCodes.filter(code => store.getValuation(code)?.delayDays === 1)
