@@ -488,6 +488,10 @@ export const useFundStore = defineStore('fund', () => {
         cachedDate: getTodayStr(),
       })
     }
+    // ⚠️ ref<Map>.set() 不触发 Vue 响应式。recompute 改了 valuationMap 后必须整体重新赋值，
+    // 首页 fundRows（读 valuationMap.value）才会重算显示最新 gszzl/realtimeGszzl。
+    // 旧实现只 .set() 不触发，靠定时刷新兜底刷新——重启首屏/loop 实时更新都延迟。
+    valuationMap.value = new Map(valuationMap.value)
   }
 
   /** 启动恢复缓存后，用已恢复的 stockPrevDayCache/stockRealtimeCache + estimatedHoldingsCache
@@ -821,6 +825,10 @@ export const useFundStore = defineStore('fund', () => {
           }
         }
       }
+      // ⚠️ ref<Map>.set() 不触发响应式——循环内逐个 set 后必须整体重新赋值，首页 fundRows
+      // （读 valuationMap.value）才会重算显示刷新后的估值。旧实现靠 intradayMap 变化间接触发，
+      // 不可靠（intraday 无更新时 fundRows 不刷新）。此处显式触发。
+      valuationMap.value = new Map(valuationMap.value)
       for (const [code, points] of Object.entries(intradayUpdates)) {
         intradayMap.value[code] = points
       }
@@ -1010,6 +1018,7 @@ export const useFundStore = defineStore('fund', () => {
    *  T+2 未确认基金用缓存的推算 gszzl 覆盖，避免首屏显示 0。仅今日缓存。 */
   function seedFromCache(cacheMap: Map<string, FundCache>): void {
     const today = getTodayStr()
+    let seeded = false
     for (const [code, cache] of cacheMap) {
       if (!cache.valuation || !fundCodes.value.includes(code)) continue
       if (cache.cachedDate !== today) continue
@@ -1022,7 +1031,12 @@ export const useFundStore = defineStore('fund', () => {
         }
       }
       valuationMap.value.set(code, cache.valuation)
+      seeded = true
     }
+    // ⚠️ ref<Map>.set() 不触发 Vue 响应式——fundRows computed 读 valuationMap.value 才追踪引用。
+    // seed 后必须整体重新赋值，首页 fundRows 才会重算显示缓存数据，不等 batchGetValuation 完成。
+    // 否则重启首屏空白，要等 batchGetValuation 末尾的 store.valuationMap = valuationMap 才出值。
+    if (seeded) valuationMap.value = new Map(valuationMap.value)
   }
 
   /** 保存列配置（持久化） */
