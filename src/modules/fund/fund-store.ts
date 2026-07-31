@@ -317,7 +317,7 @@ export const useFundStore = defineStore('fund', () => {
 
   /** 找出持有指定股票的 T+1/T+2 基金（数据变化时定向重算）。
    *  T+1/T+2 均取 estimatedHoldingsCache（推算持仓：季报前十大+全量报告按比例缩放+优化器约束），
-   *  使预测胶囊与 T+2 同口径。T+1 的 gszzl 主数值仍由 fundgz 驱动，不在此推算（见 recomputeFundsForStocks 守卫）。
+   *  使实时胶囊与 T+2 同口径。T+1 的 gszzl 主数值仍由 fundgz 驱动，不在此推算（见 recomputeFundsForStocks 守卫）。
    *  全量持仓（t1HoldingsCache）仅用于持仓透视表展示，不喂胶囊。 */
   function fundsHoldingStocks(stockCodes: Iterable<string>): Map<string, EstimatedHoldingItem[]> {
     const targetCodes = new Set<string>()
@@ -328,7 +328,7 @@ export const useFundStore = defineStore('fund', () => {
       const v = valuationMap.value.get(fundCode)
       if (!v) continue
       const isT2 = v.delayDays === 2  // T+2 即可（确认后 isEstimated=false 也需重算 realtimeGszzl）
-      const isT1 = v.delayDays === 1  // T+1 也参与：持仓股票实时加权 → 预测胶囊
+      const isT1 = v.delayDays === 1  // T+1 也参与：持仓股票实时加权 → 实时胶囊
       if (!isT2 && !isT1) continue
       // T+1/T+2 统一取推算持仓，胶囊口径一致
       const cached = estimatedHoldingsCache.value.get(fundCode)
@@ -355,7 +355,7 @@ export const useFundStore = defineStore('fund', () => {
       // 昨日收盘加权 → gszzl（仅 T+2 未确认 isEstimated 时推算；已确认则保留确认值，不被持仓推算覆盖）。
       // ⚠️ 必须卡 delayDays===2：T+1 盘中 isEstimated=true，若进此块会用持仓昨收加权覆盖 fundgz 给的 gszzl，
       //    并污染 estimatedGszzlMap（喂 T+2 防闪烁）。T+1 的 gszzl（今日涨跌幅）恒由 fundgz 驱动，不受持仓股票影响；
-      //    T+1 的「预测」胶囊走下面 realtime 块，持仓底数已与 T+2 同取 estimatedHoldingsCache（推算持仓）。
+      //    T+1 的「实时」胶囊走下面 realtime 块，持仓底数已与 T+2 同取 estimatedHoldingsCache（推算持仓）。
       if (v.delayDays === 2 && v.isEstimated) {
         const gszzl = computeEstimatedGszzlFromPrevDay(holdings, stockPrevDayCache.value)
         if (gszzl != null) {
@@ -365,16 +365,16 @@ export const useFundStore = defineStore('fund', () => {
         }
       }
       // 实时加权 → realtimeGszzl（头部胶囊）。确认后也推算——实时估算是独立展示需求。
-      // 胶囊标签统一为「预测」（持仓股票实时加权推算）；后端仍按确认类型区分计算口径：
+      // 胶囊标签统一为「实时」（持仓股票实时加权推算）；后端仍按确认类型区分计算口径：
       //   - 当日确认（原 T+1）：基金有 fundgz 官方盘中估值作主值，胶囊是持仓股票实时加权
       //   - 次日确认（原 T+2）：无盘中估值，胶囊是唯一实时推算（今日市场数据，美股含盘前/盘中/盘后）
       // enablePrediction=false 时不做实时加权推算（持仓股行情照拉，喂 T+2 主估值与持仓表涨跌列；
-      //   仅不产 realtimeGszzl 胶囊），用户不关注预测可关闭省计算。
+      //   仅不产 realtimeGszzl 胶囊），用户不关注实时可关闭省计算。
       if (!predictionEnabled) {
         valuationMap.value.set(fundCode, v) // 触发响应式
         continue
       }
-      const rtLabel = '预测'
+      const rtLabel = '实时'
       const realtimeMapForFund = new Map<string, StockQuoteInfo>()
       let allHoldingsCached = true  // 是否每只持仓都有缓存条目（用于判全休市）
       for (const h of holdings) {
@@ -672,8 +672,8 @@ export const useFundStore = defineStore('fund', () => {
             valuation.gz = 0
           }
         }
-        // 保留 realtime 字段（防主刷新抹掉 loop 写入的实时/预测值）。T+1/T+2 均需保留：
-        // batchGetValuation 结果不带 realtime 字段，不加宽门控会盘中抹掉 T+1 预测胶囊。
+        // 保留 realtime 字段（防主刷新抹掉 loop 写入的实时值）。T+1/T+2 均需保留：
+        // batchGetValuation 结果不带 realtime 字段，不加宽门控会盘中抹掉 T+1 实时胶囊。
         if (existing && existing.realtimeGszzl != null) {
           valuation.realtimeGszzl = existing.realtimeGszzl
           valuation.realtimeSource = existing.realtimeSource
