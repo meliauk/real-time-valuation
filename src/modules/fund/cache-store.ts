@@ -16,6 +16,11 @@ import { isCacheToday, isCacheValid } from '@/shared/utils/date-format'
 export const useCacheStore = defineStore('cache', () => {
   /** 缓存数据映射 - key 为基金代码 */
   const cacheMap = ref<Map<string, FundCache>>(new Map())
+  /** 是否已从 localStorage 恢复完成。
+   *  ⚠️ 防抖落盘兜底（flushPersist）的覆盖守卫：版本检查器强制刷新可能在 restoreCache()
+   *  完成前就触发 beforeunload，此时内存 cacheMap 还是初始空 Map，若直接 flushPersist 会把空对象
+   *  写入 FUND_CACHE 覆盖盘上真实缓存。restore 完成前置此标记为 false，兜底见之即跳过。 */
+  let restored = false
 
   // ===== 缓存读取 =====
   function getCache(fundCode: string): FundCache | undefined {
@@ -74,6 +79,8 @@ export const useCacheStore = defineStore('cache', () => {
     }, 2000)
   }
   function flushPersist(): void {
+    // 恢复未完成时跳过兜底写盘：避免空内存覆盖盘上真实缓存（版本检查刷新风暴场景）
+    if (!restored) return
     if (persistTimer) { clearTimeout(persistTimer); persistTimer = null }
     const obj: Record<string, FundCache> = {}
     for (const [key, value] of cacheMap.value) obj[key] = value
@@ -86,6 +93,7 @@ export const useCacheStore = defineStore('cache', () => {
     if (obj && typeof obj === 'object') {
       cacheMap.value = new Map(Object.entries(obj))
     }
+    restored = true
   }
 
   return {
