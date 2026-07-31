@@ -75,6 +75,10 @@ export const STORAGE_KEYS = {
   STOCK_REALTIME_CACHE: 'jgb_stock_realtime_cache',
   /** 实时涨跌幅缓存写入日期（交易日校验） */
   STOCK_REALTIME_DATE: 'jgb_stock_realtime_date',
+  /** T+2 基金持仓加权推算估值涨跌幅缓存（重启首屏预热，避免 T+2 今日涨跌长时间 --） */
+  ESTIMATED_GSZZL_CACHE: 'jgb_estimated_gszzl_cache',
+  /** 推算估值涨跌幅缓存写入日期（美股基准日校验，跨日失效重算） */
+  ESTIMATED_GSZZL_DATE: 'jgb_estimated_gszzl_date',
   /** 指数行情缓存（刷新后预热，避免首屏全 --） */
   INDEX_QUOTES_CACHE: 'jgb_index_quotes_cache',
   /** 指数行情缓存写入日期（跨日失效重拉） */
