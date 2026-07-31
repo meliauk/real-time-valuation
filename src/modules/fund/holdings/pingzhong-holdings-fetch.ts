@@ -196,9 +196,16 @@ export function enrichMarketCodeFromPingzhong(
  *   2. toUpperCase() 匹配（美股 ASML vs asml）
  *   3. 纯数字且非6位（非A股）去前导零匹配（港股 00700→700）；
  *      A股6位代码不去前导零（000001→1 会错配）
- * 命中补：stockName = raw.name（仅当当前为空）。其余字段（ratio/emMarketCode/rawEntry）不动。
+ * 命中补 stockName = raw.name；其余字段（ratio/emMarketCode/rawEntry）不动。
+ * mode='fill'（默认）：仅填空名，已有名不覆盖（pingzhong 兜底路径用）；
+ * mode='override'：命中即覆盖（移动端成功路径用，网页端 Data_fundSharesPositions 的中文名
+ *   展示更友好——全称/规范简称优于移动端 GPJC，以网页端为准；未命中保留原值）。
  */
-function enrichNamesFromFundSharesPositions(holdings: HoldingDetailItem[], fundSharesPositionsRaw?: unknown): void {
+export function enrichNamesFromFundSharesPositions(
+  holdings: HoldingDetailItem[],
+  fundSharesPositionsRaw?: unknown,
+  mode: 'fill' | 'override' = 'fill',
+): void {
   if (!holdings.length || !fundSharesPositionsRaw || !Array.isArray(fundSharesPositionsRaw)) return
   const reports = fundSharesPositionsRaw as Array<{ fundSharesPositionsList?: Array<{ code?: string; name?: string }> }>
   const latest = reports[reports.length - 1]
@@ -221,7 +228,7 @@ function enrichNamesFromFundSharesPositions(holdings: HoldingDetailItem[], fundS
   }
 
   for (const h of holdings) {
-    if (h.stockName) continue  // 已有名称不覆盖
+    if (mode === 'fill' && h.stockName) continue  // fill 模式：已有名不覆盖；override 模式：命中即覆盖
     const c = h.stockCode
     const matched =
       byCode.get(c) ??
