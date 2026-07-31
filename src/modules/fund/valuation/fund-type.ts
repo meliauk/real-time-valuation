@@ -25,6 +25,7 @@ const T2_EXACT_TYPES = new Set<string>([
   'QDII-混合平衡',
   'QDII-REITs',
   'QDII-FOF',
+  "QDII-普通股票",
   'FOF-稳健型',
   'FOF-进取型',
   'FOF-均衡型',
