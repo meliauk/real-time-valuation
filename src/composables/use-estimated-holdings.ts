@@ -26,6 +26,7 @@ import { useFundStore } from '@/modules/fund/fund-store'
 import { computeEstimatedGszzlFromPrevDay } from '@/modules/fund/calc/gszzl-weight'
 import { normalizeStockCodeTencent } from '@/shared/net/tencent-codec'
 import { searchStocks } from '@/modules/stock/search/stock-search'
+import { loadPingzhongHoldings, enrichMarketCodeFromPingzhong } from '@/modules/fund/holdings/pingzhong-holdings-fetch'
 
 export function useEstimatedHoldings(fundCode: Ref<string> | string, delayDays: Ref<number> | number) {
   const estimated = ref<EstimatedHoldings | null>(null)
@@ -72,6 +73,17 @@ export function useEstimatedHoldings(fundCode: Ref<string> | string, delayDays: 
         // fetchStockQuotes 传 noop：持仓立即展示，涨跌由 store loop 取数后 recompute 兜底
         // preloaded：复用详情页已加载的 pingzhongdata（stockCodesNew），避免二次 script 注入
         estData = await fundStore.getEstimatedHoldings(fc, async () => new Map(), preloaded)
+      } catch { /* 静默 */ }
+    } else if (preloaded?.stockCodesNew != null && estData.holdings.some(h => !h.emMarketCode)) {
+      // 缓存命中但 holdings 有空 emMarketCode（首页 bootstrap 预取写回的补全前版本）：
+      // 详情页有 preloaded（已加载 pingzhongdata），主动同步补全一次，保证 emCode 不空。
+      // 否则空 emCode → classifyShare 全 unknown → 全走 Yahoo → 涨跌极慢且海外股取不到。
+      try {
+        const pz = await loadPingzhongHoldings(fc, preloaded)
+        if (pz && enrichMarketCodeFromPingzhong(estData.holdings, pz)) {
+          // 补全改了 holdings（estData.holdings 即缓存内同一份引用）→ 写回缓存，下次命中即补全后版本
+          fundStore.setEstimatedHoldingsCache(fc, estData)
+        }
       } catch { /* 静默 */ }
     }
 
