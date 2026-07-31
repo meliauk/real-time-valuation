@@ -10,13 +10,17 @@
  * 东财对 WAP 口径放行 CORS——本项目部署在 GitHub Pages（纯静态），与该接口同构（浏览器 fetch），
  * 无需服务端代理。字段：Datas.fundStocks[] 每项 GPDM(代码)/GPJC(名称)/JZBL(占比%)，报告期在 Expansion。
  *
- * ⚠️ 该接口无 emMarketCode（东财市场代码），只有 GPDM 股票代码。本项目 classifyShare/行情分流
- *   依赖 emMarketCode，故据 GPDM 文本格式反推 emMarketCode（A→1/0、港→116、美→105/106），
- *   其余海外交 Yahoo Search（与 pingzhong stockCodesNew 同口径）。
- *   GPDM 格式（实测自 test 项目 normalizeTencentCode 正则）：
- *     - A股：6 位数字（600519）→ 沪1/深0
- *     - 港股：5 位数字(00700) 或 0700.HK/00001.HK
- *     - 美股：字母(AAPL) 或 TSLA.US/AAPL.O
+ * ⚠️ 该接口无 emMarketCode（东财市场代码），只有 GPDM 股票代码，且是裸码（无市场前缀）。
+ *   本项目 classifyShare/行情分流依赖 emMarketCode，但**不据 GPDM 位数/格式猜市场**——
+ *   韩股海力士 000660、三星 005930 都是 6 位数字，与深市 A 股撞码，按位数猜必误判。
+ *   统一留空 emMarketCode，市场归属交 pingzhong stockCodesNew（带 emCode 前缀，权威）补全：
+ *     - pingzhong 匹配上 → 用其 emCode 走对应接口（A/HK/US→东财，其余海外→Yahoo）
+ *     - pingzhong 未匹配 → emCode 保持空 → classifyShare 返回 unknown → Yahoo Search
+ *   parseGpdm 只做 stockCode 归一化（去前缀/后缀），不判市场。
+ *   GPDM 格式（仅用于归一化代码，不判市场）：
+ *     - 带前缀：sh600519/sz000001/hk00700/usAAPL
+ *     - 带后缀：0700.HK/00001.HK/TSLA.US/AAPL.O
+ *     - 裸码：6位数字(600519/000660)、5位数字(00700)、纯字母(AAPL)
  *
  * 失败回退由调用方处理（pingzhong stockCodesNew 兜底：有代码无占比）。
  */
@@ -134,43 +138,31 @@ function detectReportType(reportDate?: string): string {
 
 /**
  * GPDM 股票代码 → { stockCode, emMarketCode }。
- * 据代码文本格式反推东财市场代码，与 classifyShare 的 emCode 口径一致：
- *   - A股：6位数字 → 沪(6/9开头)=1、深=0
- *   - 港股：5位数字 或 n.HK → 116
- *   - 美股：纯字母 或 x.US/.O → 105（纳斯达克口径，106 纽交所需细分，统一用105，取数无差异）
- *   - 其余（日韩台欧等带其他后缀）→ '' 交 Yahoo Search（unknown）
- * stockCode 归一化为纯代码（去掉市场后缀），与 pingzhong stockCodesNew 一致。
+ * **只归一化 stockCode，不判市场**（emMarketCode 恒为 ''）。
+ * 缘由：移动端 GPDM 是裸码，韩股 000660/005930 与深市 A 股同为 6 位数字，按位数猜必误判。
+ *   市场归属统一交 pingzhong stockCodesNew（带 emCode 前缀，权威）补全；补不到的走 Yahoo Search。
+ * stockCode 归一化为纯代码（去掉前缀/后缀），与 pingzhong stockCodesNew 剥前缀后的口径一致，
+ * 供 enrichMarketCodeFromPingzhong 按 stockCode 匹配覆盖市场。
  */
 function parseGpdm(rawCode: string): { stockCode: string; emMarketCode: string } {
   const raw = rawCode.trim()
   if (!raw) return { stockCode: '', emMarketCode: '' }
 
-  // 市场前缀格式：sh600519/sz000001/hk00700/usAAPL（test 项目 normalizeTencentCode mPref 分支同款）→ 剥前缀判市场
+  // 市场前缀格式：sh600519/sz000001/bj000001/hk00700/usAAPL → 剥前缀取纯代码（不据此判市场，统一留空）
   const mPref = raw.match(/^(sh|sz|bj|hk|us)(.+)$/i)
   if (mPref) {
     const p = mPref[1].toLowerCase()
     const rest = String(mPref[2] || '').trim()
-    if (p === 'sh') return { stockCode: rest, emMarketCode: '1' }
-    if (p === 'sz') return { stockCode: rest, emMarketCode: '0' }
-    if (p === 'bj') return { stockCode: rest, emMarketCode: '' }   // 北证暂交 Yahoo
-    if (p === 'hk') return { stockCode: rest.padStart(5, '0'), emMarketCode: '116' }
-    if (p === 'us') return { stockCode: rest.toUpperCase(), emMarketCode: '105' }
+    if (p === 'hk') return { stockCode: rest.padStart(5, '0'), emMarketCode: '' }
+    if (p === 'us') return { stockCode: rest.toUpperCase(), emMarketCode: '' }
+    return { stockCode: rest, emMarketCode: '' }
   }
-  // 港股：0700.HK / 00001.HK → 116
+  // 港股带后缀：0700.HK / 00001.HK → 剥后缀补 5 位
   const hkDot = raw.match(/^(\d{4,5})\.HK$/i)
-  if (hkDot) return { stockCode: hkDot[1].padStart(5, '0'), emMarketCode: '116' }
-  // 港股：5位数字（00700）→ 116
-  if (/^\d{5}$/.test(raw)) return { stockCode: raw, emMarketCode: '116' }
-  // 美股：TSLA.US / AAPL.O / BRK.B → 105
+  if (hkDot) return { stockCode: hkDot[1].padStart(5, '0'), emMarketCode: '' }
+  // 美股带后缀：TSLA.US / AAPL.O / BRK.B → 取主代码大写
   const usDot = raw.match(/^([A-Za-z]{1,10})\.[A-Za-z]{1,6}$/)
-  if (usDot) return { stockCode: usDot[1].toUpperCase(), emMarketCode: '105' }
-  // 美股：纯字母（AAPL）→ 105
-  if (/^[A-Za-z]{1,10}$/.test(raw)) return { stockCode: raw.toUpperCase(), emMarketCode: '105' }
-  // A股：6位数字 → 沪(6/9)=1、深=0
-  if (/^\d{6}$/.test(raw)) {
-    const isSh = raw.startsWith('6') || raw.startsWith('9')
-    return { stockCode: raw, emMarketCode: isSh ? '1' : '0' }
-  }
-  // 其余海外（带 .T/.KS/.TW/.DE 等后缀，或无法识别）→ 交 Yahoo Search
+  if (usDot) return { stockCode: usDot[1].toUpperCase(), emMarketCode: '' }
+  // 裸码：纯数字（A 股 6 位/港股 5 位/韩股 6 位等）或纯字母（美股）→ 原样，市场留空
   return { stockCode: raw, emMarketCode: '' }
 }
