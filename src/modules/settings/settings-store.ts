@@ -43,7 +43,7 @@ export interface UserSettings {
   showSearchGlow: boolean
   enableGlassEffect: boolean
   enableManagerCheck: boolean
-  /** 开启预测涨跌幅：true=拉取持仓股行情并加权推算盘中预测涨跌（详情页胶囊+列表「预测涨跌幅」排序）；
+  /** 开启实时涨跌幅：true=拉取持仓股行情并加权推算盘中实时涨跌（详情页胶囊+列表「实时涨跌幅」排序）；
    *  false=完全不做推算（不拉持仓股行情、不算 realtimeGszzl），省网络和算力。 */
   enablePrediction: boolean
   privacy: PrivacySettings
