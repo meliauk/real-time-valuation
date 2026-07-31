@@ -490,6 +490,13 @@ export const useFundStore = defineStore('fund', () => {
     lruSet(t1HoldingsCache.value, fundCode, { data, cachedDate: today }, MAX_ESTIMATED_CACHE)
   }
 
+  /** 将补全后的推算持仓写回 estimatedHoldingsCache（详情页读缓存命中空 emCode 时主动补全后写回）。
+   *  data.holdings 与缓存内为同一份引用，补全就地改后调用此方法覆盖缓存条目，下次命中即补全后版本。 */
+  function setEstimatedHoldingsCache(fundCode: string, data: EstimatedHoldings): void {
+    const today = getTodayStr()
+    lruSet(estimatedHoldingsCache.value, fundCode, { data, cachedDate: today }, MAX_ESTIMATED_CACHE)
+  }
+
   // ===== collectMissing：供 service 收集缺失股（三档分流）=====
 
   /** 收集所有 T+1/T+2 基金持仓中"收盘缓存缺失"的股票，按三档分流 */
@@ -937,7 +944,7 @@ export const useFundStore = defineStore('fund', () => {
     // merge/recompute
     mergeStockQuotesToCache, mergeRealtimeToCache, recomputeFundsForStocks,
     // 持仓取数
-    getEstimatedHoldings, getT1Holdings, setT1Holdings,
+    getEstimatedHoldings, getT1Holdings, setT1Holdings, setEstimatedHoldingsCache,
     // 收集（供 service）
     collectMissingStocks, collectOverseasAll, collectAHkAll,
     // 跨日
