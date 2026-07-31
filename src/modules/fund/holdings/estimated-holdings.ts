@@ -18,7 +18,7 @@ import type { StockQuoteInfo } from '@/shared/types/common-types'
 import { ESTIMATE_CONFIG } from '@/config/constants'
 import { isValidFundCode } from '@/shared/utils/validation'
 import { fetchTop10FromMobileApi } from './f10-mobile-fetch'
-import { fetchTop10FromPingzhong, enrichMarketCodeFromPingzhong, loadPingzhongHoldings, type PingzhongPreloaded } from './pingzhong-holdings-fetch'
+import { fetchTop10FromPingzhong, enrichMarketCodeFromPingzhong, enrichNamesFromFundSharesPositions, loadPingzhongHoldings, type PingzhongPreloaded } from './pingzhong-holdings-fetch'
 import { optimizeHoldings } from './holdings-optimizer'
 import { fetchLatestNavChange } from '../valuation/nav-fetch'
 
@@ -89,6 +89,10 @@ export async function fetchEstimatedHoldings(
           resolveEnriched()
         })()
       }
+      // 网页端持仓名覆盖移动端 GPJC：Data_fundSharesPositions 的中文名展示更友好（全称/规范简称），
+      // 以网页端为准，命中即覆盖；未命中保留移动端名。详情页 preloaded.fundSharesPositions 现成，
+      // 零新增请求；首页无 preloaded 时该字段为 undefined，函数内部空判跳过（首页持仓表本就轻量展示）。
+      enrichNamesFromFundSharesPositions(top10.holdings, preloaded?.fundSharesPositions, 'override')
     }
 
     // 前十大均为真实披露（非推算），原地打 isEstimated=false（不再 .map 出新数组）：
