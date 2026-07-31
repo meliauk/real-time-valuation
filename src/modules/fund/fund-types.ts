@@ -272,7 +272,7 @@ export interface Holding {
 export type ViewMode = 'table' | 'card'
 
 /** 排序字段 */
-export type SortField = 'fundCode' | 'fundName' | 'changeRate' | 'holdingAmount' | 'lastNetValue' | 'todayProfit' | 'totalProfit' | 'totalReturnRate' | 'costPrice'
+export type SortField = 'fundCode' | 'fundName' | 'changeRate' | 'realtimeGszzl' | 'holdingAmount' | 'lastNetValue' | 'todayProfit' | 'totalProfit' | 'totalReturnRate' | 'costPrice'
 
 /** 排序方向 */
 export type SortDirection = 'asc' | 'desc'
