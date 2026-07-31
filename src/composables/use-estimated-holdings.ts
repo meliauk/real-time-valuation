@@ -109,6 +109,7 @@ export function useEstimatedHoldings(fundCode: Ref<string> | string, delayDays: 
           if (v.dwjz > 0) v.gz = v.dwjz * (1 + gszzl / 100)
           fundStore.valuationMap.set(fc, v)
           fundStore.estimatedGszzlMap.set(fc, gszzl)
+          fundStore.persistEstimatedGszzlMap()  // 落盘供下次重启恢复
           estimatedGszzl.value = gszzl
         } else {
           estimatedGszzl.value = v?.gszzl ?? null
