@@ -16,15 +16,13 @@
 import { useFundStore } from '@/modules/fund/fund-store'
 import { useCacheStore } from '@/modules/fund/cache-store'
 import { useHoldingStore } from '@/modules/holding/holding-store'
-import { batchGetValuation } from '@/modules/fund/valuation/fund-valuation-merge'
-import { getFundType, getCatalogFundName } from '@/modules/fund/catalog/fund-code-catalog'
+import { getCatalogFundName } from '@/modules/fund/catalog/fund-code-catalog'
 import { fetchFundCodeCatalog } from '@/modules/fund/catalog/fund-code-catalog'
 import { startEmCloseLoop, stopEmCloseLoop } from '@/modules/fund/services/em-close-service'
 import { startEmRealtimeLoop, stopEmRealtimeLoop } from '@/modules/fund/services/em-realtime-service'
 import { startYahooLoop, stopYahooLoop } from '@/modules/fund/services/yahoo-service'
 import { loadHolidays, reloadHolidays } from '@/modules/fund/services/holiday-service'
 import { workerManager } from '@/shared/worker/worker-manager'
-import { RefreshStatus } from '@/config/enums'
 import { getBaseDay } from '@/modules/fund/valuation/cn-trading-day'
 
 let started = false
@@ -72,10 +70,13 @@ export async function startFundModule(): Promise<void> {
 
   if (store.fundCodes.length === 0) return
 
-  // 2. 预热目录（避免估值合并时重复下载）
-  try { await fetchFundCodeCatalog() } catch { /* 不阻塞 */ }
+  // 2. 预热目录（不阻塞首屏）：void 异步加载，getFundType 内部 await fetchFundCodeCatalog 会共享
+  //    同一个 catalogPromise（去重），目录就绪后自动命中缓存。首屏已由 seedFromCache 显示缓存数据，
+  //    不必等目录下载完才继续——目录未就绪时 getFundType 回退搜索接口兜底。
+  void fetchFundCodeCatalog().catch(() => { /* 不阻塞 */ })
 
   // 2.5 从目录补充关注基金名称（fundgz 失败的基金也能显示真名）
+  // 目录异步加载中，getCatalogFundName 暂返回空（cachedCatalog 未就绪），目录到位后下次刷新补全。
   for (const code of store.fundCodes) {
     if (!store.getFundName(code)) {
       const name = getCatalogFundName(code)
@@ -83,27 +84,23 @@ export async function startFundModule(): Promise<void> {
     }
   }
 
-  // 3. 估值刷新（fundgz+lsjz+类型 三路并发）
-  store.refreshStatus = RefreshStatus.Loading
+  // 3. 估值刷新——走 refreshAllValuations（含 batchGetValuation + T+2 防闪烁合并 + 保留 realtime
+  //    + 存盘 + 持仓累计同步 + refreshStatus 管理，与定时刷新同链路）。首屏已由 seedFromCache 显示
+  //    缓存数据，此处后台刷新覆盖。
+  //    ⚠️ 不能直接 store.valuationMap = batchGetValuation(...)：那样会整体覆盖，抹掉 seedFromCache/
+  //    recomputeAllFromCache 恢复的 T+2 推算 gszzl + realtime 胶囊（无防闪烁），首屏会闪 -- 再等 loop 恢复。
   // 异步取各市场节假日（Nager.Date，注入 trading-day 供休市判定）。不阻塞首屏——
   // 取到前 service loop 用周末兜底，注入后下轮修正。失败静默退化周末。
   void loadHolidays().catch(() => { /* 静默 */ })
   try {
-    const valuationMap = await batchGetValuation(store.fundCodes, getFundType)
-    store.valuationMap = valuationMap
-    store.lastRefreshTime = Date.now()
-    store.lastRefreshDate = getBaseDay()
-    // 启动即同步持仓累计：补调 syncYesterdayAmounts/replayGappedHoldings，
-    // 否则 lastConfirmedDate 落后的基金要等首次定时刷新才推进累计（表现为有的基金今日涨跌未计入汇总）。
+    await store.refreshAllValuations()
     const holdingStore = useHoldingStore()
-    holdingStore.syncYesterdayAmounts(valuationMap)
-    void holdingStore.replayGappedHoldings(valuationMap).catch(() => { /* 静默 */ })
     // 全量重算自愈：增量推进只在前台跑，错过的交易日无法补齐。
     // 此处用历史净值从 holdingDate 起全量累乘，一次性把 yesterdayAmount/lastConfirmedDate
     // 校准到最新已确认净值——用户上次关 app 期间错过的收益此处补齐。
     void holdingStore.recalibrateHoldingsFromNav().catch(() => { /* 静默，不影响首屏 */ })
     // 启动即生成分时点：估值就绪后批量生成，确保首屏缩略图有数据（恢复不到/为空时兜底）
-    for (const [code, valuation] of valuationMap) {
+    for (const [code, valuation] of store.valuationMap) {
       store.updateIntradayPoints(code, valuation)
     }
     // 异步拉取 T+1 完整日走势（新浪，卡片缩略图）：估值就绪后判断 T+2 跳过。
@@ -112,8 +109,6 @@ export async function startFundModule(): Promise<void> {
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error('[fund-bootstrap] 估值刷新异常', e)
-  } finally {
-    store.refreshStatus = RefreshStatus.Idle
   }
 
   // 4. 预取持仓（写入 estimatedHoldingsCache/t1HoldingsCache）。
