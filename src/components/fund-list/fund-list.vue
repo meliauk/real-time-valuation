@@ -21,7 +21,7 @@
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item
-              v-for="opt in SORT_FIELDS"
+              v-for="opt in sortFieldsView"
               :key="opt.field"
               :command="opt.field"
               :class="{ 'is-active-sort': sortField === opt.field }"
@@ -66,7 +66,7 @@
                       <template #dropdown>
                         <el-dropdown-menu>
                           <el-dropdown-item
-                            v-for="opt in SORT_FIELDS"
+                            v-for="opt in sortFieldsView"
                             :key="opt.field"
                             :command="opt.field"
                             :class="{ 'is-active-sort': sortField === opt.field }"
@@ -347,6 +347,10 @@ const SORT_FIELDS: SortFieldOption[] = [
   { label: '累计收益',   field: 'totalProfit' },
   { label: '累计收益率', field: 'totalReturnRate' },
 ]
+// 排序选项视图：enablePrediction=false 时过滤掉「预测涨跌幅」（该值不再推算，排序无意义）。
+const sortFieldsView = computed<SortFieldOption[]>(() =>
+  settingsStore.enablePrediction ? SORT_FIELDS : SORT_FIELDS.filter(o => o.field !== 'realtimeGszzl'),
+)
 
 const currentSortLabel = computed(() => {
   const opt = SORT_FIELDS.find(o => o.field === props.sortField)
