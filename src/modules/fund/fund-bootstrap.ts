@@ -49,6 +49,9 @@ export async function startFundModule(): Promise<void> {
 
   // 双全局缓存（跨日校验，非今日丢弃）
   store.restoreStockCaches()
+  // T+2 推算估值涨跌幅缓存（美股基准日校验，跨日丢弃）——必须在 seedFromCache 之前恢复，
+  // seedFromCache 据此回填 T+2 未确认基金的 gszzl，避免重启首屏长时间 --（要等 loop 重算）
+  store.restoreEstimatedGszzlMap()
   // 盘中分时点恢复（当日有效，跨日丢弃重生成）——首屏缩略图立即有数据，不等估值刷新生成
   store.restoreIntradayMap()
 
