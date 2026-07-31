@@ -339,15 +339,15 @@ const confirmTypeText = computed(() => confirmTypeLabel(getConfirmType(delayDays
 const realtimeGszzl = computed(() => fundStore.getValuation(fundCode.value)?.realtimeGszzl ?? null)
 const realtimeUpdatedAt = computed(() => fundStore.getValuation(fundCode.value)?.realtimeUpdatedAt ?? '')
 const realtimeSource = computed(() => fundStore.getValuation(fundCode.value)?.realtimeSource ?? '')
-/** 实时预测胶囊（持仓预测/实时推算）展示开关：占比有效（前十大含占比）时显示，否则隐藏。
+/** 实时预测胶囊（预测）展示开关：占比有效（前十大含占比）时显示，否则隐藏。
  *  加权 computeEstimatedGszzlFromPrevDay 用 ratio×changeRate，占比全 0 时加权恒 0 无意义故隐藏。
- *  仅对「持仓预测/实时推算」两类来源生效——它们靠持仓占比加权；其他来源（如 fundgz 确认值）不受此约束。 */
+ *  仅对「预测」来源生效——它靠持仓占比加权；其他来源（如 fundgz 确认值）不受此约束。 */
 const hasHoldingsRatio = computed(() => {
   const hs = displayHoldings.value?.holdings
   return !!hs && hs.some(h => (h.ratio ?? 0) > 0)
 })
 const isHiddenRtSource = computed(() => {
-  if (realtimeSource.value !== '持仓预测' && realtimeSource.value !== '实时推算') return false
+  if (realtimeSource.value !== '预测') return false
   return !hasHoldingsRatio.value
 })
 
