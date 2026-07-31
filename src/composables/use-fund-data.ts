@@ -41,7 +41,7 @@ export interface FundRowData {
    *  全无时今日涨跌列显示 -- 而非 0.00%（避免无数据时误显 0）。 */
   hasTodayData?: boolean
   /** 本基金持仓是否有真实占比（移动端 API 前十大含占比）。
-   *  用于实时胶囊「持仓预测/实时推算」展示开关——占比有效即显示（与详情页 isHiddenRtSource 同口径），
+   *  用于实时胶囊「预测」展示开关——占比有效即显示（与详情页 isHiddenRtSource 同口径），
    *  无占比时加权推算无意义故隐藏。 */
   hasHoldingsRatio?: boolean
   realtimeGszzl?: number
@@ -123,7 +123,7 @@ export function useFundData() {
 
         // 持仓占比是否有效：读推算持仓缓存（T+1/T+2 同源），任一项 ratio>0 即有效。
         // 与详情页 hasHoldingsRatio(displayHoldings.holdings.some(h=>h.ratio>0)) 同口径，
-        // 供实时胶囊按新口径决定「持仓预测/实时推算」是否显示。
+        // 供实时胶囊按新口径决定「预测」是否显示。
         const estHoldings = fundStore.estimatedHoldingsCache.get(code)?.data
         const hasHoldingsRatio = !!estHoldings && estHoldings.holdings.some(h => (h.ratio ?? 0) > 0)
 
@@ -154,7 +154,7 @@ export function useFundData() {
           // 占位态：em-realtime(yahoo) 首屏置 realtimeGszzl=0、source 为占位标签、未设 realtimeUpdatedAt。
           // 数据到位 recompute 后会设 realtimeUpdatedAt——据此区分占位/真实。
           realtimePlaceholder: v?.realtimeGszzl === 0 && !v?.realtimeUpdatedAt &&
-            (v?.realtimeSource === '持仓预测' || v?.realtimeSource === '实时推算'),
+            v?.realtimeSource === '预测',
           intradayPoints: fundStore.intradayMap[code] || [],
           intradayBaseValue: computeIntradayBase(v),
         }
