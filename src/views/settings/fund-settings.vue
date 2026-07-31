@@ -54,8 +54,8 @@
 
         <div class="setting-item">
           <div class="setting-info">
-            <span class="setting-label">开启预测涨跌幅</span>
-            <span class="setting-desc">拉取持仓股票行情并加权推算盘中预测涨跌（详情页实时胶囊 + 列表「预测涨跌幅」排序）。不关注可关闭以节省流量与算力</span>
+            <span class="setting-label">开启实时涨跌幅</span>
+            <span class="setting-desc">拉取持仓股票行情并加权推算盘中实时涨跌（详情页实时胶囊 + 列表「实时涨跌幅」排序）。不关注可关闭以节省流量与算力</span>
           </div>
           <label class="switch">
             <input type="checkbox" v-model="settingsStore.enablePrediction" />
