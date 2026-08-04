@@ -25,7 +25,7 @@
                   <circle cx="12" cy="13" r="4"/>
                 </svg>
               </button>
-              <input ref="fileInput" type="file" accept="image/*" class="hidden-file-input" @change="handleFileSelect" />
+              <input ref="fileInput" type="file" accept="image/*" multiple class="hidden-file-input" @change="handleFileSelect" />
             </div>
 
             <!-- 识图识别中 -->
