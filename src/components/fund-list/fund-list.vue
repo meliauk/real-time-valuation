@@ -120,6 +120,7 @@
                         ¥{{ formatCompactMoney(row.holdingAmount) }}
                       </span>
                       <span v-else class="ctrl-holding text-muted">--</span>
+                      <span v-if="pendingLabel(row.fundCode)" class="ctrl-pending-badge" :class="pendingLabel(row.fundCode) === '买' ? 'badge-buy' : 'badge-sell'">{{ pendingLabel(row.fundCode) }}</span>
                       <span class="ctrl-date">{{ formatDate(row.valuationTime) }}</span>
                     </div>
                     <!-- 实时涨跌幅 + 已更新徽章：实时在左、已更新在右。
@@ -253,6 +254,7 @@
           </div>
 
           <div class="card-bottom">
+            <span v-if="pendingLabel(row.fundCode)" class="card-pending-badge" :class="pendingLabel(row.fundCode) === '买' ? 'badge-buy' : 'badge-sell'">{{ pendingLabel(row.fundCode) }}</span>
             <span class="card-time text-muted">{{ row.valuationTime }}</span>
             <button class="card-del" @click.stop="$emit('removeFund', row.fundCode)" title="删除">
               <el-icon><Delete /></el-icon>
@@ -311,6 +313,9 @@ import ChangeIndicator from '@/components/shared/change-indicator.vue'
 import FundSparkline from '@/components/fund-list/fund-sparkline.vue'
 import PrivacyPopover from '@/components/shared/privacy-popover.vue'
 import { useSettingsStore } from '@/modules/settings/settings-store'
+import { useHoldingStore } from '@/modules/holding/holding-store'
+import { PendingActionStatus } from '@/modules/holding/holding-types'
+import { getTodayStr } from '@/modules/fund/valuation/cn-trading-day'
 import type { FundRowData } from '@/composables/use-fund-data'
 import type { ViewMode, SortField, SortDirection } from '@/modules/fund/fund-types'
 import { STORAGE_KEYS } from '@/config/constants'
@@ -333,8 +338,21 @@ const emit = defineEmits<{
 
 const router = useRouter()
 const settingsStore = useSettingsStore()
+const holdingStore = useHoldingStore()
 const p = computed(() => settingsStore.privacy)
 const privacyPopoverVisible = ref(false)
+
+/** 待确认操作标签：该基金有 pending 的买卖计划时返回 "买"/"卖" */
+function pendingLabel(fundCode: string): string | null {
+  const today = getTodayStr()
+  const pending = holdingStore.pendingActions.find(
+    a => a.fundCode === fundCode && a.status === PendingActionStatus.Pending,
+  )
+  if (!pending) return null
+  // scheduledDate 已过 → 不展示
+  if (pending.scheduledDate <= today) return null
+  return pending.type === 'add' ? '买' : '卖'
+}
 
 // ===== 排序选项 =====
 // 每个字段只出现一次：首次点击按降序，再次点击同字段切换为升序，切换到别的字段则重置为降序。
@@ -779,6 +797,26 @@ onUnmounted(() => {
   font-size: 10px;
   color: var(--text-muted);
 }
+.ctrl-pending-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.ctrl-pending-badge.badge-buy {
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.12);
+}
+.ctrl-pending-badge.badge-sell {
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.12);
+}
 
 /* 已更新徽章 + 盘中涨跌幅 同一行 */
 .ctrl-status-row {
@@ -954,6 +992,26 @@ onUnmounted(() => {
 
 .card-bottom { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-default); padding-top: var(--spacing-xs); }
 .card-time { font-size: var(--font-xs); }
+.card-pending-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.card-pending-badge.badge-buy {
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.12);
+}
+.card-pending-badge.badge-sell {
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.12);
+}
 .card-del { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 4px; border-radius: var(--radius-sm); transition: all var(--transition-fast); font-size: var(--font-sm); }
 .card-del:hover { color: var(--color-rise); background: rgba(239,68,68,0.1); }
 
