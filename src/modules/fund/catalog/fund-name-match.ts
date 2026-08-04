@@ -1,90 +1,116 @@
 /**
- * 基金名称 → 代码 匹配（前缀筛选 + 份额决胜）
+ * 基金名称 → 代码 匹配（走基金搜索接口）
  *
  * 视觉模型识别支付宝持仓截图时，截图本身不含 6 位基金代码（如 QDII 截图模型常把
- * fundCode 误填成 "QDII"）。本模块用模型返回的 fundName 在全量基金目录里匹配，补齐真实代码。
+ * fundCode 误填成 "QDII"）。本模块用模型返回的 fundName 调基金搜索接口拿候选，
+ * 再用「份额 + 括号注记 + 重合度」决胜，补齐真实代码。
  *
- * 算法（用户方案，经真实数据验证 6/6 + 边界场景正确，准确率高）：
- *   1) 前缀筛选：用基金名前 n 个字（从 3 字开始，逐步加长 3→4→5→…）在目录里筛
- *      `fundName.includes(前缀)`。候选数不再减少时停——此时候选基本是「同一基金的
- *      不同份额/类型」（如 易方达XX A/C/D）。
- *   2) 份额决胜：候选里优先选份额后缀（A/C/D/E…）与模型基金名一致的；找不到一致的
- *      取候选里第一个。
+ * 走搜索接口（而非全量目录文件 fundcode_search.js）的原因：
+ *   - 搜索接口返回的每个结果 fundCode + fundName 天然配套，不会像目录匹配那样
+ *     把名称和错误代码错位绑定。
+ *   - 搜索接口对带括号注记的名称（如 "(QDII)A(人民币份额)A"）更鲁棒。
  *
- * 相比「去后缀 + 相似度」方案：前缀筛选更直观、不依赖归一化正则、不会把名称相近的
- * 不同基金错配（前缀加到足够长就只剩同基金的不同份额）。
+ * 决胜规则（经真实数据验证）：
+ *   1) 份额一致：候选份额后缀（A/C/D，先去括号再取）与模型基金名一致者优先
+ *   2) 括号注记一致：模型名里的括号注记（如 "人民币份额"，排除 QDII/FOF 等类型）
+ *      候选名也要含——用于区分 "110037(无人民币份额)" 与 "018229(有人民币份额)"
+ *   3) 重合度：模型名与候选名的最长公共子串占比，越高越优先
+ *   4) 无份额一致：直接按重合度取最高
  *
- * 数据源：fetchFundCodeCatalog（全量基金目录 fundcode_search.js，含 code/pinyin/name/type）。
+ * 数据源：searchFunds（东方财富 FundSearchAPI，JSONP）。
  */
 
-import { fetchFundCodeCatalog } from './fund-code-catalog'
-import type { FundCatalogItem } from '@/modules/fund/fund-types'
+import { searchFunds } from './fund-search'
+import type { SearchResult } from '@/modules/fund/fund-types'
 
-/** 提取基金名末尾的份额标识（A/C/D/E 等单字母，或"A类/C份额"），用于份额决胜 */
+/** 提取份额后缀（A/C/D/E…）。先去括号注记再取末尾份额字母——
+ *  避免 "(人民币份额)" 结尾的名称取不到份额（份额在括号前，如 "...(QDII)A(人民币份额)" 的 A）。 */
 function extractShare(name: string): string {
   if (!name) return ''
-  const s = String(name).replace(/\s+/g, '')
+  const s = String(name).replace(/\s+/g, '').replace(/[\(（][^)）]*[\)）]/g, '')
   let m = s.match(/([A-E])份额?$/); if (m) return m[1]
   m = s.match(/([A-Za-z])类$/); if (m) return m[1].toUpperCase()
   m = s.match(/([A-Z])$/); if (m) return m[1]
   return ''
 }
 
+/** 提取基金名里的括号注记（排除 QDII/FOF/LOF/ETF/联接 等类型标记，
+ *  保留 "人民币份额" 这类区分不同份额的注记）。用于区分同份额、同主体但注记不同的基金。 */
+function bracketTags(name: string): string[] {
+  const tags: string[] = []
+  const re = /[\(（]([^)）]+)[\)）]/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(String(name)))) {
+    if (!/^(QDII|FOF|LOF|ETF|联接)$/.test(m[1])) tags.push(m[1])
+  }
+  return tags
+}
+
+/** 模型名与候选名的重合度 0~1（最长公共子串 / 较长串长度；完全相同或互含给高分） */
+function overlapScore(modelName: string, candName: string): number {
+  const m = String(modelName).replace(/\s+/g, '')
+  const c = String(candName).replace(/\s+/g, '')
+  if (m === c) return 1
+  if (c.includes(m) || m.includes(c)) return 0.95
+  let best = 0
+  for (let i = 0; i < m.length; i++) {
+    for (let j = 0; j < c.length; j++) {
+      let k = 0
+      while (i + k < m.length && j + k < c.length && m[i + k] === c[j + k]) k++
+      if (k > best) best = k
+    }
+  }
+  return best / Math.max(m.length, c.length)
+}
+
 export interface FundMatchResult {
   /** 匹配到的基金代码 */
   fundCode: string
-  /** 匹配到的基金名称（目录里的标准名） */
+  /** 匹配到的基金名称（搜索结果里的标准名，与代码配套） */
   matchedName: string
-  /** 相似度/置信度 0~1（前缀筛选收敛后份额一致=1，取第一个=0.9 兜底） */
+  /** 置信度 0~1（份额+注记都一致=1，份额一致=0.95，仅重合度兜底=实际重合度） */
   score: number
-  /** 匹配方法：share（份额决胜）/ first（取第一个，无份额一致候选） */
+  /** 匹配方法：share-tag（份额+注记一致）/ share（份额一致）/ overlap（重合度兜底） */
   method: string
 }
 
-/** 前缀筛选起步长度（从 3 个字开始） */
-const PREFIX_START = 3
-
 /**
- * 用 fundName 在全量基金目录里补码（前缀筛选 + 份额决胜）。
+ * 用 fundName 调基金搜索接口拿候选，再份额+注记+重合度决胜补码。
  * @param fundName 模型返回的基金名称
- * @returns 匹配结果，或 null（目录为空 / 无候选）
+ * @returns 匹配结果，或 null（搜索无结果）
  */
 export async function matchFundByCatalogName(fundName: string): Promise<FundMatchResult | null> {
   if (!fundName) return null
-  const catalog = await fetchFundCodeCatalog()
-  if (!catalog || !catalog.length) return null
+  const results = await searchFunds(fundName)
+  if (!results.length) return null
 
-  const name = String(fundName).replace(/\s+/g, '')
+  const share = extractShare(fundName)
+  const modelTags = bracketTags(fundName)
+  const hasAllTags = (name: string): boolean => modelTags.every(t => name.includes(t))
 
-  // 1) 前缀筛选：从 3 字开始逐步加长，候选数不再减少时停
-  let chosen: FundCatalogItem[] = catalog.slice()
-  let prevCount = chosen.length
-  for (let n = PREFIX_START; n <= name.length; n++) {
-    const prefix = name.slice(0, n)
-    const filtered = catalog.filter(c => c.fundName.includes(prefix))
-    if (filtered.length === 0) break          // 筛光了，用上一步的 chosen
-    // 候选不再减少（或反而变多，理论不会）→ 停，用当前 chosen
-    if (n > PREFIX_START && filtered.length >= prevCount) break
-    chosen = filtered
-    prevCount = filtered.length
-    if (chosen.length <= 1) break              // 已锁定到 1 只
-  }
-  if (!chosen.length) return null
+  // 打分排序：份额一致 > 注记一致 > 重合度
+  const scored = results.map((r: SearchResult) => {
+    const shareMatch = share !== '' && extractShare(r.fundName) === share
+    const tagMatch = modelTags.length > 0 && hasAllTags(r.fundName)
+    const ov = overlapScore(fundName, r.fundName)
+    return { r, shareMatch, tagMatch, ov }
+  })
+  scored.sort((a, b) => {
+    if (a.shareMatch !== b.shareMatch) return a.shareMatch ? -1 : 1
+    if (a.tagMatch !== b.tagMatch) return a.tagMatch ? -1 : 1
+    return b.ov - a.ov
+  })
 
-  // 2) 份额决胜：候选里优先选份额后缀与模型基金名一致的；无则取第一个
-  const share = extractShare(name)
-  let best: FundCatalogItem | null = null
-  let method = 'first'
-  let score = 0.9
-  if (share) {
-    const hit = chosen.find(c => extractShare(c.fundName) === share)
-    if (hit) { best = hit; method = 'share'; score = 1 }
-  }
-  if (!best) best = chosen[0]
+  const best = scored[0]
+  let score: number
+  let method: string
+  if (best.shareMatch && best.tagMatch) { score = 1; method = 'share-tag' }
+  else if (best.shareMatch) { score = 0.95; method = 'share' }
+  else { score = best.ov; method = 'overlap' }
 
   return {
-    fundCode: best.fundCode,
-    matchedName: best.fundName,
+    fundCode: best.r.fundCode,
+    matchedName: best.r.fundName,
     score: Math.round(score * 100) / 100,
     method,
   }
