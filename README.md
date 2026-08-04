@@ -115,7 +115,7 @@
 
 ---
 
-[![GitHub Star History Chart](https://star-history.com)](https://star-history.com)
+![Star History Chart](./star-history.svg)
 
 ---
 
