@@ -115,10 +115,6 @@
 
 ---
 
-[![GitHub Star History Chart](https://vercel.app)](https://github.com/L-newbie/real-time-valuation)
-
----
-
 ## 🚀 部署
 
 <p align="center">
