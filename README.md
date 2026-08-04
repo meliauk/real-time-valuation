@@ -115,8 +115,16 @@
 
 ---
 
-<!-- star-history:start -->
-<!-- star-history:end -->
+<p align="center">
+  <picture>
+    <!-- 当用户使用 GitHub 夜间模式时显示的暗色调图表 -->
+    <source media="(prefers-color-scheme: dark)" srcset="https://githubusercontent.com">
+    <!-- 当用户使用 GitHub 日间模式时显示的亮色调图表 -->
+    <source media="(prefers-color-scheme: light)" srcset="https://githubusercontent.com">
+    <!-- 降级备用显示的图片 -->
+    <img alt="GitHub Star History Chart" src="https://githubusercontent.com" width="600">
+  </picture>
+</p>
 
 ---
 
