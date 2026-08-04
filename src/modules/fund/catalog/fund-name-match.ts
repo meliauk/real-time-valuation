@@ -8,13 +8,17 @@
  * 走搜索接口（而非全量目录文件 fundcode_search.js）的原因：
  *   - 搜索接口返回的每个结果 fundCode + fundName 天然配套，不会像目录匹配那样
  *     把名称和错误代码错位绑定。
- *   - 搜索接口对带括号注记的名称（如 "(QDII)A(人民币份额)A"）更鲁棒。
+ *
+ * 两步用不同名称（关键）：
+ *   - 搜索关键词：去括号注记的「主体名」（如 "国富全球科技互联混合C"），让搜索能搜到。
+ *     完整名带 "(QDII)人民币C" 后缀时东财搜索匹配差，搜不到目标基金，会返回不相关候选。
+ *   - 决胜比较：用完整模型名（含 "(人民币份额)" 等注记），区分同主体不同份额/注记的基金。
  *
  * 决胜规则（经真实数据验证）：
  *   1) 份额一致：候选份额后缀（A/C/D，先去括号再取）与模型基金名一致者优先
  *   2) 括号注记一致：模型名里的括号注记（如 "人民币份额"，排除 QDII/FOF 等类型）
- *      候选名也要含——用于区分 "110037(无人民币份额)" 与 "018229(有人民币份额)"
- *   3) 重合度：模型名与候选名的最长公共子串占比，越高越优先
+ *      候选名也要含——区分 "110037(无人民币份额)" 与 "018229(有人民币份额)"
+ *   3) 重合度：模型名与候选名的最长公共子串占比
  *   4) 无份额一致：直接按重合度取最高
  *
  * 数据源：searchFunds（东方财富 FundSearchAPI，JSONP）。
@@ -23,9 +27,13 @@
 import { searchFunds } from './fund-search'
 import type { SearchResult } from '@/modules/fund/fund-types'
 
+/** 仅重合度兜底时的最低重合度阈值——低于此值判定未匹配，不硬选不相关基金 */
+const OVERLAP_MIN = 0.5
+
 /** 提取份额后缀（A/C/D/E…）。先去括号注记再取末尾份额字母——
- *  避免 "(人民币份额)" 结尾的名称取不到份额（份额在括号前，如 "...(QDII)A(人民币份额)" 的 A）。 */
-function extractShare(name: string): string {
+ *  避免 "(人民币份额)" 结尾的名称取不到份额（份额在括号前，如 "...(QDII)A(人民币份额)" 的 A）。
+ *  导出：供测试页展示候选行的份额后缀标注（与真实补码同源，不另写一套）。 */
+export function extractShare(name: string): string {
   if (!name) return ''
   const s = String(name).replace(/\s+/g, '').replace(/[\(（][^)）]*[\)）]/g, '')
   let m = s.match(/([A-E])份额?$/); if (m) return m[1]
@@ -44,6 +52,16 @@ function bracketTags(name: string): string[] {
     if (!/^(QDII|FOF|LOF|ETF|联接)$/.test(m[1])) tags.push(m[1])
   }
   return tags
+}
+
+/** 搜索关键词：去括号注记 + 去币种，保留份额字母。让搜索能搜到目标基金
+ *  （完整名带 "(QDII)人民币C" 后缀时东财搜索匹配差，搜不到）。
+ *  导出：供测试页用与真实补码相同的搜索词调 searchFunds 展示候选，保证候选一致。 */
+export function searchKeyword(name: string): string {
+  return String(name)
+    .replace(/\s+/g, '')
+    .replace(/[\(（][^)）]*[\)）]/g, '')
+    .replace(/[人民币美元港元欧元日元]/g, '')
 }
 
 /** 模型名与候选名的重合度 0~1（最长公共子串 / 较长串长度；完全相同或互含给高分） */
@@ -81,14 +99,16 @@ export interface FundMatchResult {
  */
 export async function matchFundByCatalogName(fundName: string): Promise<FundMatchResult | null> {
   if (!fundName) return null
-  const results = await searchFunds(fundName)
+  // 搜索用去括号主体名（让搜索能搜到），决胜用完整名（含注记区分）
+  const keyword = searchKeyword(fundName)
+  const results = await searchFunds(keyword || fundName)
   if (!results.length) return null
 
   const share = extractShare(fundName)
   const modelTags = bracketTags(fundName)
   const hasAllTags = (name: string): boolean => modelTags.every(t => name.includes(t))
 
-  // 打分排序：份额一致 > 注记一致 > 重合度
+  // 打分排序：份额一致 > 注记一致 > 重合度（都用完整模型名比较）
   const scored = results.map((r: SearchResult) => {
     const shareMatch = share !== '' && extractShare(r.fundName) === share
     const tagMatch = modelTags.length > 0 && hasAllTags(r.fundName)
@@ -108,6 +128,10 @@ export async function matchFundByCatalogName(fundName: string): Promise<FundMatc
   else if (best.shareMatch) { score = 0.95; method = 'share' }
   else { score = best.ov; method = 'overlap' }
 
+  // 防护：仅重合度兜底（份额+注记都不一致）且重合度过低时，判定未匹配而非硬选不相关基金。
+  // 否则会像"国富全球科技互联混合"被补成"国投沪深300金融地产联接"(完全不相关)那样填入错误代码。
+  if (method === 'overlap' && best.ov < OVERLAP_MIN) return null
+
   return {
     fundCode: best.r.fundCode,
     matchedName: best.r.fundName,
@@ -115,3 +139,4 @@ export async function matchFundByCatalogName(fundName: string): Promise<FundMatc
     method,
   }
 }
+
