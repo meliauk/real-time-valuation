@@ -170,8 +170,11 @@ export function useImageRecognition() {
         try {
           const m = await matchFundByCatalogName(fund.fundName)
           if (m) {
+            console.log('[补码]', fund.fundName, '→', m.fundCode, m.matchedName, `(${m.method} ${(m.score * 100).toFixed(0)}%)`)
             fund.fundCode = m.fundCode
-            if (!fund.fundName) fund.fundName = m.matchedName
+            // 用搜索结果的标准名替换模型名：保证代码+名称配套（都来自同一搜索结果），
+            // 避免模型名带注记/重复后缀（如 "(QDII)A(人民币份额)A"）与代码错位展示。
+            fund.fundName = m.matchedName
           }
         } catch {
           // 目录加载/匹配失败保持原样
@@ -186,6 +189,11 @@ export function useImageRecognition() {
       if (!existing) {
         seen.set(f.fundCode, f)
       } else {
+        // 警告：补码撞车——两个不同 fundName 补成同一 fundCode，合并会致名称/金额错位
+        if (existing.fundName && f.fundName && existing.fundName !== f.fundName) {
+          console.warn('[去重撞车] 同一 fundCode', f.fundCode, '但 fundName 不同：', existing.fundName, 'vs', f.fundName,
+            '→ 金额', existing.holdingAmount, '/', f.holdingAmount)
+        }
         // 合并：如果现有记录缺少字段，用新记录补充
         seen.set(f.fundCode, {
           ...existing,
@@ -253,6 +261,13 @@ export function useImageRecognition() {
       }
 
       imported++
+    }
+
+    // 填入后触发一次全量估值刷新：refreshAllValuations 末尾会跑 holdingStore.syncYesterdayAmounts，
+    // 推进新持仓的 yesterdayAmount / 今日收益 / 涨跌。否则填入后持仓金额在但涨跌不加载，
+    // 要等下次自动刷新或手动清缓存才正常。
+    if (imported > 0) {
+      void fundStore.refreshAllValuations()
     }
     return imported
   }
