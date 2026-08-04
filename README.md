@@ -115,7 +115,8 @@
 
 ---
 
-![Star History Chart](./star-history.svg)
+<!-- star-history:start -->
+<!-- star-history:end -->
 
 ---
 
