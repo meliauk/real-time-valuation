@@ -7,8 +7,9 @@
  * 输入：图片 base64（data URL 或纯 base64）。
  * 输出：RecognizedFund[]（识别出的多只基金）。
  *
- * ⚠️ CORS：智谱 API 不放行浏览器，GitHub Pages 零后端需走 CORS 代理。
- *   本地开发可配 vite proxy（/api/glm → 智谱 API）。生产环境需代理或后端中转。
+ * ⚠️ CORS：智谱 API 实测放行浏览器 CORS，可直连 open.bigmodel.cn，本地与 GitHub Pages 均可用。
+ *   不走 vite 代理——代理转发偶发 ECONNRESET（智谱对代理连接重置），GitHub Pages 无代理相对路径会 405。
+ *   若个别环境浏览器拦截直连，可临时把 API_URLS.GLM_API 改回 '/api/glm/chat/completions' 走 vite 代理（仅本地 dev）。
  *   API Key 通过 VITE_GLM_API_KEY 环境变量注入。
  */
 
