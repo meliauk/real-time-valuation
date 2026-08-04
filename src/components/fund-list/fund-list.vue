@@ -255,7 +255,7 @@
 
           <div class="card-bottom">
             <span v-if="pendingLabel(row.fundCode)" class="card-pending-badge" :class="pendingLabel(row.fundCode) === '买' ? 'badge-buy' : 'badge-sell'">{{ pendingLabel(row.fundCode) }}</span>
-            <span class="card-time text-muted">{{ row.valuationTime }}</span>
+            <span class="card-time text-muted">{{ formatDate(row.valuationTime) }}</span>
             <button class="card-del" @click.stop="$emit('removeFund', row.fundCode)" title="删除">
               <el-icon><Delete /></el-icon>
             </button>
@@ -411,12 +411,13 @@ function truncateName(name: string): string {
   return name.length > 11 ? name.slice(0, 11) + '…' : name
 }
 
-/** 估值日期：取 YYYY-MM-DD（valuationTime 已由 formatValuationTimeWithSeconds 格式化） */
+/** 估值日期：日期形态只显示月-日（去年份），时间形态原样透传。
+ *  valuationTime 由 formatValuationTime 生成，盘中估算为 HH:mm、已确认/今日为 YYYY-MM-DD。 */
 function formatDate(timeStr: string): string {
   if (!timeStr) return '--'
-  // 形如 2024-01-15 或 2024-01-15 16:00:00，取前10位日期部分
+  // 形如 2024-01-15（或带时分 2024-01-15 16:00）→ 取日期部分去年份显示 MM-DD
   const date = timeStr.slice(0, 10)
-  return /^\d{4}-\d{1,2}-\d{1,2}$/.test(date) ? date : (timeStr || '--')
+  return /^\d{4}-\d{1,2}-\d{1,2}$/.test(date) ? date.slice(5) : (timeStr || '--')
 }
 
 /** 实时胶囊是否可见。
