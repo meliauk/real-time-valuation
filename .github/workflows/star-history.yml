@@ -2,17 +2,22 @@ name: Generate Star History
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 每天凌晨自动运行一次
-  workflow_dispatch:     # 允许你手动点击运行
+    - cron: '0 0 * * *' # 每天凌晨全自动更新一次
+  workflow_dispatch:     # 允许你随时手动点击运行
+
+permissions:
+  contents: write       # 必须赋予 Action 修改你仓库 README 文件的权限
 
 jobs:
   stargazers:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Generate Star History
-        uses: wanshuiyin/star-history-action@master
+        # 使用 Marketplace 官方注册的正确作者和组件名
+        uses: carsteneu/my-star-history@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          # 要统计的你的仓库
-          repos: L-newbie/real-time-valuation
+          repo: L-newbie/real-time-valuation
