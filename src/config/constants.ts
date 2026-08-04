@@ -142,8 +142,11 @@ export const API_URLS = {
   YAHOO_CHART: 'https://query1.finance.yahoo.com/v8/finance/chart',
   /** Yahoo Finance search API（股票搜索/符号解析，需 CORS 代理） */
   YAHOO_SEARCH: 'https://query1.finance.yahoo.com/v1/finance/search',
-  /** GLM 视觉模型 API（走 vite proxy /api/glm → open.bigmodel.cn，规避 CORS） */
-  GLM_API: '/api/glm/chat/completions',
+  /** GLM 视觉模型 API（直连智谱 open.bigmodel.cn，浏览器 fetch 实测 CORS 放行可用）。
+   *  不走 vite 代理：vite 代理转发到智谱时偶发 ECONNRESET（智谱对代理连接重置）；
+   *  GitHub Pages 纯静态托管无代理，相对路径会 405。直连两端统一。
+   *  若个别环境浏览器拦截直连 CORS，可改回 '/api/glm/chat/completions' 走 vite 代理（仅本地 dev）。 */
+  GLM_API: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
   /** Nager.Date 公共节假日 API（带 CORS 头，主线程 fetch 直接可用，无需代理） */
   NAGER_HOLIDAYS: 'https://date.nager.at/api/v3/PublicHolidays',
 } as const
