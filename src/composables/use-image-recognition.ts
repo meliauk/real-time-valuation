@@ -201,7 +201,7 @@ export function useImageRecognition() {
         seen.set(f.fundCode, {
           ...existing,
           holdingAmount: existing.holdingAmount ?? f.holdingAmount,
-          accumulatedProfit: existing.accumulatedProfit ?? f.accumulatedProfit,
+          holdingProfit: existing.holdingProfit ?? f.holdingProfit,
           fundName: existing.fundName || f.fundName,
         })
       }
@@ -238,14 +238,14 @@ export function useImageRecognition() {
         fundStore.addFund(fund.fundCode, fund.fundName)
       }
 
-      // 持有金额可单独识别（模型有时只读到金额）；但累计收益必须模型实际读出才填入——
-      // accumulatedProfit 为 null/undefined（模型未返回该字段，常见于漏读亏损）时跳过持仓填入，
+      // 持有金额可单独识别（模型有时只读到金额）；但持有收益必须模型实际读出才填入——
+      // holdingProfit 为 null/undefined（模型未返回该字段，常见于漏读亏损）时跳过持仓填入，
       // 避免 ?? 0 把「读不到」伪装成「0 收益」，列表显示假 0。模型读出的负数会原样落库。
-      const hasHolding = fund.holdingAmount != null && fund.accumulatedProfit != null
+      const hasHolding = fund.holdingAmount != null && fund.holdingProfit != null
       if (hasHolding) {
         // 封闭式派生模型：将识别的持有金额/累计盈亏转换为份额+成本价
         const recognizedAmount = fund.holdingAmount ?? 0
-        const recognizedProfit = fund.accumulatedProfit ?? 0
+        const recognizedProfit = fund.holdingProfit ?? 0
         const costBasis = recognizedAmount - recognizedProfit // 投入本金 = 持有金额 - 累计盈亏
 
         // 已有持仓时先清掉该基金全部旧持仓（含操作日志/pending），再用识别值重建，
