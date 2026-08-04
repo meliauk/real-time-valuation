@@ -7,7 +7,7 @@ import { ref } from 'vue'
 import { useFundStore } from '@/modules/fund/fund-store'
 import { useHoldingStore } from '@/modules/holding/holding-store'
 import { recognizeFundFromImage } from '@/modules/ai/glm-vision'
-import { searchFunds } from '@/modules/fund/catalog/fund-search'
+import { matchFundByCatalogName } from '@/modules/fund/catalog/fund-name-match'
 import { isValidFundCode } from '@/shared/utils/validation'
 import { safeDivide } from '@/shared/utils/safe-math'
 import type { RecognizedFund, RecognitionStatus } from '@/modules/ai/ai-types'
@@ -135,7 +135,23 @@ export function useImageRecognition() {
 
     await Promise.allSettled(workers)
 
-    // 去重（按 fundCode）
+    // 先补码、再去重：补码前 fundCode 可能是 "QDII" 这类非6位占位（支付宝截图本身不含代码），
+    // 若先按 fundCode 去重会把多只 QDII 基金错误合并成一条。故先用 fundName 补齐真实代码再去重。
+    for (const fund of allFunds) {
+      if (!isValidFundCode(fund.fundCode) && fund.fundName) {
+        try {
+          const m = await matchFundByCatalogName(fund.fundName)
+          if (m) {
+            fund.fundCode = m.fundCode
+            if (!fund.fundName) fund.fundName = m.matchedName
+          }
+        } catch {
+          // 目录加载/匹配失败保持原样
+        }
+      }
+    }
+
+    // 去重（按补码后的真实 fundCode）
     const seen = new Map<string, RecognizedFund>()
     for (const f of allFunds) {
       const existing = seen.get(f.fundCode)
@@ -154,22 +170,7 @@ export function useImageRecognition() {
 
     const results = Array.from(seen.values())
 
-    // 对 AI 无法给出有效基金代码的记录，尝试用 fundName 搜索
-    for (const fund of results) {
-      if (!isValidFundCode(fund.fundCode) && fund.fundName) {
-        try {
-          const searchResults = await searchFunds(fund.fundName)
-          if (searchResults.length > 0) {
-            fund.fundCode = searchResults[0].fundCode
-            if (!fund.fundName) fund.fundName = searchResults[0].fundName
-          }
-        } catch {
-          // 搜索失败保持原样
-        }
-      }
-    }
-
-    // 过滤掉仍然无效的
+    // 过滤掉仍然无效的（补码后仍非6位）
     recognizedFunds.value = results.filter(f => isValidFundCode(f.fundCode))
 
     if (recognizedFunds.value.length === 0 && files.length > 0) {
