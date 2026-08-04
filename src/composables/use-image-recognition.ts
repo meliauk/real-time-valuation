@@ -12,7 +12,12 @@ import { isValidFundCode } from '@/shared/utils/validation'
 import { safeDivide } from '@/shared/utils/safe-math'
 import type { RecognizedFund, RecognitionStatus } from '@/modules/ai/ai-types'
 
-const MAX_CONCURRENT = 2
+const MAX_CONCURRENT = 3
+/** 单张图 GLM 识别失败后的最大重试次数（含首次，即最多调用 GLM_MAX_ATTEMPTS 次）。
+ *  视觉模型偶发返回空/解析失败或网络抖动（ECONNRESET/超时），重试能显著提高单图识别成功率。 */
+const GLM_MAX_ATTEMPTS = 3
+/** 重试退避基数（毫秒），第 n 次重试等待 n × 此值 */
+const GLM_RETRY_BACKOFF = 600
 const FILE_READER_TIMEOUT = 10000
 const IMAGE_MAX_SIZE = 1024
 const IMAGE_QUALITY = 0.8
@@ -114,7 +119,30 @@ export function useImageRecognition() {
         try {
           status.value = 'recognizing'
           const base64 = await readFileAsBase64(file, controller.signal)
-          const funds = await recognizeFundFromImage(base64, controller.signal)
+          // 单图识别带重试：视觉模型偶发返回空/解析失败或网络抖动，重试提高单图成功率
+          let funds: RecognizedFund[] = []
+          let lastErr: unknown = null
+          for (let attempt = 1; attempt <= GLM_MAX_ATTEMPTS; attempt++) {
+            if (controller.signal.aborted) break
+            try {
+              funds = await recognizeFundFromImage(base64, controller.signal)
+              break
+            } catch (e) {
+              lastErr = e
+              // 用户取消则不重试
+              if (e instanceof DOMException && e.name === 'AbortError') break
+              // 还有重试机会 → 退避后重试
+              if (attempt < GLM_MAX_ATTEMPTS) {
+                await new Promise(resolve => setTimeout(resolve, attempt * GLM_RETRY_BACKOFF))
+              }
+            }
+          }
+          if (controller.signal.aborted) return
+          if (funds.length === 0 && lastErr) {
+            // 重试用尽仍失败 → 记录错误，该图无结果
+            const msg = lastErr instanceof Error ? lastErr.message : String(lastErr)
+            if (!firstError) firstError = msg
+          }
           allFunds.push(...funds)
         } catch (e) {
           if (e instanceof DOMException && e.name === 'AbortError') return
