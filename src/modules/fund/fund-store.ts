@@ -726,6 +726,18 @@ export const useFundStore = defineStore('fund', () => {
       const realName = stripPlaceholderName(data.name, fundCode)
       if (realName) setFundName(fundCode, realName)
       updateIntradayPoints(fundCode, data)
+      // 预取推算持仓：添加基金路径只调 fetchValuation（拿 fundgz/lsjz/delayDays），不触发持仓拉取——
+      // 而 service loop 的 collect* 只读 estimatedHoldingsCache，持仓为空即 continue 跳过该基金，
+      // 新基金的重仓股涨跌永远不取 → T+2/QDII 涨跌幅卡 --（其 gszzl 完全靠持仓加权，fundgz 多失败）。
+      // 此处补一次预取（与 bootstrap 同链路，自带 LRU+去重，传 noop 不发股票行情请求），持仓就绪后
+      // 立即用全局缓存里已有的重仓股涨跌加权一次（recompute 内部按缓存有无加权），不等 loop 心跳唤醒。
+      void getEstimatedHoldings(fundCode, async () => new Map())
+        .then(est => {
+          if (est?.holdings.length) {
+            void recomputeFundsForStocks(est.holdings.map(h => h.stockCode))
+          }
+        })
+        .catch(() => { /* 静默：持仓拉取失败由 loop 下轮 collect 兜底 */ })
     }
     return data
   }
