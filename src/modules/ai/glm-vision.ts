@@ -137,10 +137,12 @@ export async function recognizeFundFromImage(
   }
 
   const funds = parseFundsFromContent(content)
+  // 不过滤基金代码：支付宝等截图本身不含6位代码，模型常返回 "QDII" 等非6位占位。
+  // 保留全部识别结果（含非6位/空代码），交给 use-image-recognition.ts 的补码环节
+  // 用 fundName 相似度匹配全量目录补齐真实代码。若在此过滤，补码拿不到这些基金 → 整图丢失。
   return funds
-    .filter(f => f.fundCode && /^\d{6}$/.test(String(f.fundCode)))
     .map(f => ({
-      fundCode: String(f.fundCode),
+      fundCode: f.fundCode != null ? String(f.fundCode) : '',
       fundName: f.fundName || '',
       holdingAmount: f.holdingAmount != null ? Number(f.holdingAmount) : undefined,
       accumulatedProfit: f.accumulatedProfit != null ? Number(f.accumulatedProfit) : undefined,
