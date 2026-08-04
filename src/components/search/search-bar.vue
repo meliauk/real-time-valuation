@@ -46,7 +46,7 @@
                   <span class="font-number recognized-code">{{ fund.fundCode }}</span>
                   <span class="recognized-name">{{ fund.fundName }}</span>
                   <span v-if="fund.holdingAmount != null" class="font-number recognized-amount">{{ fund.holdingAmount.toFixed(2) }}</span>
-                  <span v-if="fund.accumulatedProfit != null" class="font-number recognized-profit" :class="fund.accumulatedProfit > 0 ? 'text-profit' : fund.accumulatedProfit < 0 ? 'text-loss' : ''">{{ fund.accumulatedProfit > 0 ? '+' : '' }}{{ fund.accumulatedProfit.toFixed(2) }}</span>
+                  <span v-if="fund.holdingProfit != null" class="font-number recognized-profit" :class="fund.holdingProfit > 0 ? 'text-profit' : fund.holdingProfit < 0 ? 'text-loss' : ''">{{ fund.holdingProfit > 0 ? '+' : '' }}{{ fund.holdingProfit.toFixed(2) }}</span>
                   <span v-if="fundStore.fundCodes.includes(fund.fundCode)" class="recognized-tag">已存在</span>
                 </div>
               </div>
