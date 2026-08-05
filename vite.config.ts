@@ -45,8 +45,7 @@ export default defineConfig(({ command }) => {
       },
     },
     
-    // 💡 100% 准确地判断打包环境，并请确保这里的仓库名填对
-    base: isProd ? '/real-time-valuation/' : '/',
+    base: '/',
 
     server: {
       host: '127.0.0.1',
