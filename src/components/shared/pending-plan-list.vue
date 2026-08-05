@@ -22,8 +22,8 @@
         </span>
       </div>
       <div class="plan-meta">
-        <span class="plan-date">{{ p.scheduledDate }} 确认</span>
-        <button class="plan-cancel-btn" @click="onCancel(p)">取消计划</button>
+        <span class="plan-date" :class="statusClass(p)">{{ statusText(p) }}</span>
+        <button class="plan-cancel-btn" @click="onCancel(p)">{{ isFailed(p) ? '清除' : '取消计划' }}</button>
       </div>
     </div>
   </div>
@@ -41,6 +41,7 @@ import { useFundStore } from '@/modules/fund/fund-store'
 import { useSettingsStore } from '@/modules/settings/settings-store'
 import { confirm } from '@/composables/use-confirm'
 import type { PendingAction } from '@/modules/holding/holding-types'
+import { PendingActionStatus } from '@/modules/holding/holding-types'
 
 const props = defineProps<{
   /** 限定基金代码；为空时展示全部待确认计划（全局视图） */
@@ -55,10 +56,24 @@ const privacy = computed(() => settingsStore.privacy)
 /** 是否展示基金名（全局视图才需要，单基金视图无需重复展示当前基金名） */
 const showFund = computed(() => !props.fundCode)
 
-/** 待确认计划列表：单基金走 getPendingByFund，全局走 pendingOnly */
+/** 待确认计划列表：单基金走 getPendingByFund，全局走 pendingOrFailed。
+ *  含 Failed（超期未能自动入账）——必须可见，否则用户不知道计划没生效。 */
 const plans = computed<PendingAction[]>(() =>
-  props.fundCode ? holdingStore.getPendingByFund(props.fundCode) : holdingStore.pendingOnly,
+  props.fundCode ? holdingStore.getPendingByFund(props.fundCode) : holdingStore.pendingOrFailed,
 )
+
+function isFailed(p: PendingAction): boolean {
+  return p.status === PendingActionStatus.Failed
+}
+
+function statusText(p: PendingAction): string {
+  if (isFailed(p)) return `${p.scheduledDate} 未成交${p.failedReason ? `（${p.failedReason}）` : ''}`
+  return `${p.scheduledDate} 确认`
+}
+
+function statusClass(p: PendingAction): string {
+  return isFailed(p) ? 'status-failed' : ''
+}
 
 function fundName(code: string): string {
   return fundStore.resolveFundName(code)
@@ -75,14 +90,16 @@ async function onCancel(p: PendingAction): Promise<void> {
   const actionLabel = p.type === 'add' ? `加仓 ¥${p.amount.toFixed(2)}` : `减仓 ${p.amount.toFixed(2)} 份`
   const fundLabel = props.fundCode ? '' : `「${fundStore.resolveFundName(p.fundCode)}」`
   const confirmed = await confirm({
-    title: '取消待确认计划',
-    desc: `确认取消${fundLabel}的${actionLabel}计划？取消后将不会在 ${p.scheduledDate} 执行。`,
-    confirmText: '确认取消',
+    title: isFailed(p) ? '清除未成交计划' : '取消待确认计划',
+    desc: isFailed(p)
+      ? `${fundLabel}的${actionLabel}计划在 ${p.scheduledDate} 未能成交，已不会再自动执行。清除后如仍需操作请重新提交。`
+      : `确认取消${fundLabel}的${actionLabel}计划？取消后将不会在 ${p.scheduledDate} 执行。`,
+    confirmText: isFailed(p) ? '清除' : '确认取消',
     cancelText: '保留',
   })
   if (!confirmed) return
   const ok = holdingStore.cancelPendingAction(p.id)
-  if (ok) ElMessage.success('已取消该计划')
+  if (ok) ElMessage.success(isFailed(p) ? '已清除该计划' : '已取消该计划')
   else ElMessage.warning('该计划已执行或不存在，无法取消')
 }
 </script>
@@ -170,6 +187,10 @@ async function onCancel(p: PendingAction): Promise<void> {
 .plan-date {
   font-size: 10px;
   color: var(--text-muted);
+}
+/* 超期未成交：红色，提示需用户手动处理 */
+.plan-date.status-failed {
+  color: #ef4444;
 }
 
 .plan-cancel-btn {
