@@ -29,14 +29,17 @@ import { STORAGE_KEYS } from '@/config/constants'
 import { safeParseFloat, roundMoney, displayRate } from '@/shared/utils/safe-math'
 import { generateId } from '@/shared/utils/validation'
 import { loadJSON, saveJSON, loadString, saveString } from '@/shared/cache/local-storage-io'
-import { getTodayStr, getNowStr, getNextNTradingDay, getPreviousNTradingDay, getTradingDayFromToday } from '@/modules/fund/valuation/cn-trading-day'
+import { getTodayStr, getNowStr, getPreviousNTradingDay, getTradingDayFromToday } from '@/modules/fund/valuation/cn-trading-day'
 
 /** 持仓数据版本号 - 结构变更时递增，触发自动迁移 */
 const HOLDINGS_DATA_VERSION = 4
 
-/** 待确认操作的最大等待窗口（交易日）。超过仍取不到确认净值即置 Failed，
- *  避免因基金停牌/长期延迟披露/交易日历偏差导致计划永久悬挂在 Pending。 */
-const MAX_PENDING_WAIT_TRADING_DAYS = 10
+/** 待确认操作的最大**实际尝试**次数（按不同日期计，同日多次刷新只算一次）。
+ *  超过仍取不到确认净值即置 Failed，避免因基金停牌/长期延迟披露/交易日历偏差
+ *  导致计划永久悬挂在 Pending。
+ *  ⚠️ 按"尝试次数"而非"自然日历"计：纯前端应用关掉页面即无代码运行，
+ *  用户长期不开 app 时日历会空转，按日历判会误杀本可正常成交的计划。 */
+const MAX_PENDING_ATTEMPTS = 10
 
 export const useHoldingStore = defineStore('holding', () => {
   // ===== 基础状态 =====
@@ -448,16 +451,30 @@ export const useHoldingStore = defineStore('holding', () => {
       action.executedNav = confirmedNav
       action.executedNavDate = navDate
       action.executedAt = Date.now()
+      // 成交后清掉重试计数（该计划已终态，留着无意义且会干扰调试）
+      action.attemptCount = undefined
+      action.lastAttemptDate = undefined
     }
     if (changed) persistPendingActions()
   }
 
-  /** 超期判定：距计划日已过 MAX_PENDING_WAIT_TRADING_DAYS 个交易日仍未成交 → 置 Failed。
-   *  防止取不到净值的计划永久悬挂在 Pending（既不入账，UI 也一直挂着待确认徽章）。
+  /** 超期判定：**实际尝试**过 MAX_PENDING_ATTEMPTS 个不同日期仍未成交 → 置 Failed。
+   *
+   *  ⚠️ 不能只按自然日历判（旧实现 `today > scheduledDate + N 个交易日`）：
+   *  本项目是纯前端应用，无 Service Worker/后台同步，关掉页面就没有任何代码在跑。
+   *  用户出差两周没开 app，回来第一次打开时日历早已越过窗口——`executePendingActions`
+   *  第一轮就把一个**本来能正常成交**的计划直接判 Failed，该入账的钱变成一条红色「未成交」。
+   *  改为累计「确实尝试过取数并失败」的天数：同日多次刷新只计一次，没打开 app 的日子不计。
+   *  这样窗口的语义变成"给过 N 天真实机会"，与用户是否在线解耦。
+   *
    *  @returns 是否发生了状态变更（调用方据此决定落盘） */
   function markFailedIfExpired(action: PendingAction, reason: string): boolean {
-    const deadline = getNextNTradingDay(MAX_PENDING_WAIT_TRADING_DAYS, dayjs(action.scheduledDate))
-    if (getTodayStr() <= deadline) return false
+    const today = getTodayStr()
+    // 同一天内重复刷新只累计一次尝试
+    if (action.lastAttemptDate === today) return false
+    action.lastAttemptDate = today
+    action.attemptCount = (action.attemptCount ?? 0) + 1
+    if (action.attemptCount < MAX_PENDING_ATTEMPTS) return true  // 记录了尝试，需落盘
     action.status = PendingActionStatus.Failed
     action.failedReason = reason
     return true
