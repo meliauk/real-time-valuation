@@ -68,6 +68,9 @@ function isFailed(p: PendingAction): boolean {
 
 function statusText(p: PendingAction): string {
   if (isFailed(p)) return `${p.scheduledDate} 未成交${p.failedReason ? `（${p.failedReason}）` : ''}`
+  // 已尝试过但未取到净值：透出重试进度，让用户知道系统在等而不是卡死
+  const tried = p.attemptCount ?? 0
+  if (tried > 0) return `${p.scheduledDate} 待净值（已重试 ${tried} 次）`
   return `${p.scheduledDate} 确认`
 }
 
