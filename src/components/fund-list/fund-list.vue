@@ -115,7 +115,10 @@
                 <!-- ctrl 列：基金名称 + (持仓金额 估值日期) + [已更新 盘中涨跌] -->
                 <td class="col-ctrl fund-ctrl-cell sticky-col">
                   <div class="ctrl-stack">
-                    <span class="ctrl-name">{{ pcMode ? row.fundName : truncateName(row.fundName) }}</span>
+                    <div class="ctrl-name-row">
+                      <span v-if="row.consecutiveDays && (row.consecutiveDays.direction === 'up' || row.consecutiveDays.direction === 'down')" :class="['consecutive-badge', row.consecutiveDays.direction === 'up' ? 'cons-up' : 'cons-down']"><span class="cons-arrow">{{ row.consecutiveDays.direction === 'up' ? '↑' : '↓' }}</span><span class="cons-num">{{ row.consecutiveDays.count }}</span></span>
+                      <span class="ctrl-name">{{ pcMode ? row.fundName : truncateName(row.fundName) }}</span>
+                    </div>
                     <div class="ctrl-holding-row">
                       <span v-if="row.holdingAmount > 0" :class="['ctrl-holding', !p.holding && 'privacy-blur']">
                         ¥{{ formatCompactMoney(row.holdingAmount) }}
@@ -805,6 +808,31 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 基金名称行：连续涨跌标识 + 名称并排 */
+.ctrl-name-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.consecutive-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+.consecutive-badge.cons-up {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.07);
+}
+.consecutive-badge.cons-down {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.07);
+}
 .ctrl-holding {
   font-size: 11px;
   color: var(--text-muted);
@@ -1087,16 +1115,16 @@ onUnmounted(() => {
   padding-bottom: 0;
 }
 .fund-list-container.pc-mode .col-ctrl {
-  width: 160px;
+  width: 300px;
 }
 .fund-list-container.pc-mode .col-todayProfit {
-  width: calc((100% - 160px) / 3);
+  width: calc((100% - 190px) / 3);
 }
 .fund-list-container.pc-mode .col-totalProfit {
-  width: calc((100% - 160px) / 3);
+  width: calc((100% - 190px) / 3);
 }
 .fund-list-container.pc-mode .col-lastNetValue {
-  width: calc((100% - 160px) / 3);
+  width: calc((100% - 190px) / 3);
 }
 
 /* ===== 移动端 ===== */

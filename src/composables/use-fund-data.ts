@@ -11,7 +11,7 @@ import { useHoldingStore } from '@/modules/holding/holding-store'
 import { useSettingsStore } from '@/modules/settings/settings-store'
 import type { IntradayPoint } from '@/modules/fund/fund-types'
 import type { SortField } from '@/modules/fund/fund-types'
-import type { PeriodReturnItem } from '@/modules/fund/services/fund-period-returns'
+import type { PeriodReturnItem, ConsecutiveInfo } from '@/modules/fund/services/fund-period-returns'
 import { ChangeDirection } from '@/config/enums'
 import { safeParseFloat, displayRate, roundMoney } from '@/shared/utils/safe-math'
 import { formatValuationTime, formatHoldingDate, isPastDailyBadgeReset } from '@/shared/utils/date-format'
@@ -57,6 +57,8 @@ export interface FundRowData {
   intradayBaseValue: number
   /** PC 端周期收益（近1周/近1月/近3月/近6月/近1年），非 PC 端时为空数组 */
   periodReturns: PeriodReturnItem[]
+  /** PC 端连续涨跌信息 */
+  consecutiveDays: ConsecutiveInfo | null
 }
 
 /** 计算走势图昨收基准 */
@@ -182,6 +184,7 @@ export function useFundData() {
           intradayPoints: fundStore.intradayMap[code] || [],
           intradayBaseValue: computeIntradayBase(v),
           periodReturns: fundStore.getPeriodReturns(code) || [],
+          consecutiveDays: fundStore.getConsecutiveDays(code),
         }
       } catch {
         return {
@@ -190,7 +193,7 @@ export function useFundData() {
           holdingAmount: 0, costPrice: 0, todayProfit: 0, totalProfit: 0,
           totalReturnRate: null, profitStatus: 'flat', valuationTime: '', holdingDate: '',
           isEstimated: true, isUpdated: false, hasTodayData: false, delayDays: 1,
-          intradayPoints: [], intradayBaseValue: 0, periodReturns: [],
+          intradayPoints: [], intradayBaseValue: 0, periodReturns: [], consecutiveDays: null,
         }
       }
     })

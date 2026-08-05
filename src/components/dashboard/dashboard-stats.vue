@@ -9,10 +9,10 @@
     role="button"
     tabindex="0"
     :aria-expanded="!collapsed"
-    :title="pcMode ? '帆帆帆帆' : (collapsed ? '展开统计' : '收起统计')"
-    @click="pcMode ? undefined : toggleCollapse"
-    @keydown.enter.prevent="pcMode ? undefined : toggleCollapse"
-    @keydown.space.prevent="pcMode ? undefined : toggleCollapse"
+    :title="collapsed ? '展开统计' : '收起统计'"
+    @click="toggleCollapse"
+    @keydown.enter.prevent="toggleCollapse"
+    @keydown.space.prevent="toggleCollapse"
   >
     <!-- 左侧渐变光条 -->
     <div class="strip-accent"></div>
@@ -79,7 +79,7 @@ const props = defineProps({
   /** PC 端模式：始终展开、更紧凑 */
   pcMode: { type: Boolean, default: false },
 })
-const collapsed = ref(props.pcMode ? false : localStorage.getItem(COLLAPSED_KEY) === '1')
+const collapsed = ref(localStorage.getItem(COLLAPSED_KEY) === '1')
 
 const settingsStore = useSettingsStore()
 const p = computed(() => settingsStore.privacy)
@@ -332,7 +332,7 @@ const overallColor = computed(() => {
 .dashboard-strip.pc-mode {
   padding: var(--spacing-sm) var(--spacing-md);
   padding-right: var(--spacing-md);
-  cursor: default;
+  cursor: pointer;
 }
 .dashboard-strip.pc-mode:focus-visible {
   outline: none;

@@ -148,7 +148,7 @@ onDeactivated(() => {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  padding: 5px var(--spacing-md);
+  padding: 10px var(--spacing-md);
   border-bottom: 1px solid var(--border-default);
   transition: background var(--transition-fast);
 }

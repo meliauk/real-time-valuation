@@ -17,6 +17,14 @@ export interface PeriodReturnItem {
   value: number
 }
 
+/** 连续涨跌信息 */
+export interface ConsecutiveInfo {
+  /** 方向：up=连续上涨, down=连续下跌, flat=平盘 */
+  direction: 'up' | 'down' | 'flat'
+  /** 连续天数（flat 时为 0） */
+  count: number
+}
+
 /** 从历史净值中推算约 N 日前净值，计算涨跌幅 */
 function calcGrowth(history: { date: string; value: number }[], days: number): number | null {
   if (history.length < 2) return null
@@ -32,6 +40,33 @@ function calcGrowth(history: { date: string; value: number }[], days: number): n
   return closest && closest.value > 0
     ? safeParseFloat((latest.value - closest.value) / closest.value * 100)
     : null
+}
+
+/** 从历史净值序列计算连续涨跌天数。
+ *  history 按日期升序排列，从最新一条往前数连续同向天数。 */
+function calcConsecutiveDays(history: { date: string; value: number }[]): ConsecutiveInfo | null {
+  if (history.length < 2) return null
+  // 计算每日涨跌方向
+  const dirs: ('up' | 'down' | 'flat')[] = []
+  for (let i = 1; i < history.length; i++) {
+    const prev = history[i - 1].value
+    const curr = history[i].value
+    if (prev <= 0) { dirs.push('flat'); continue }
+    const change = (curr - prev) / prev
+    if (change > 0) dirs.push('up')
+    else if (change < 0) dirs.push('down')
+    else dirs.push('flat')
+  }
+  if (dirs.length === 0) return null
+  // 从最新日推方向并往前计数
+  const latest = dirs[dirs.length - 1]
+  if (latest === 'flat') return { direction: 'flat', count: 0 }
+  let count = 0
+  for (let i = dirs.length - 1; i >= 0; i--) {
+    if (dirs[i] === latest) count++
+    else break
+  }
+  return { direction: latest, count }
 }
 
 /** 单个基金 JSONP 加载（无 runScriptTask 锁，由调用方保证串行） */
@@ -88,12 +123,16 @@ function loadPingzhongPeriod(fundCode: string): Promise<{
   })
 }
 
-/** 取单个基金的周期收益列表（5项） */
-export async function fetchFundPeriodReturns(fundCode: string): Promise<PeriodReturnItem[]> {
-  if (!isValidFundCode(fundCode)) return []
+/** 取单个基金的周期收益列表（5项）+ 连续涨跌 */
+export async function fetchFundPeriodReturns(fundCode: string): Promise<{
+  items: PeriodReturnItem[]
+  consecutive: ConsecutiveInfo | null
+}> {
+  const empty = { items: [] as PeriodReturnItem[], consecutive: null as ConsecutiveInfo | null }
+  if (!isValidFundCode(fundCode)) return empty
 
   const result = await loadPingzhongPeriod(fundCode)
-  if (!result) return []
+  if (!result) return empty
 
   // 解析历史净值
   const history: { date: string; value: number }[] = (result.netWorthData || [])
@@ -118,15 +157,18 @@ export async function fetchFundPeriodReturns(fundCode: string): Promise<PeriodRe
     if (val == null || !Number.isFinite(val)) val = calcGrowth(history, p.days)
     if (val != null && Number.isFinite(val)) items.push({ title: p.title, value: val })
   }
-  return items
+  const consecutive = calcConsecutiveDays(history)
+  return { items, consecutive }
 }
 
-/** 批量取多个基金的周期收益（串行避免 window 全局变量冲突） */
-export async function fetchFundPeriodReturnsBatch(codes: string[]): Promise<Map<string, PeriodReturnItem[]>> {
-  const map = new Map<string, PeriodReturnItem[]>()
+/** 批量取多个基金的周期收益 + 连续涨跌（串行避免 window 全局变量冲突） */
+export async function fetchFundPeriodReturnsBatch(codes: string[]): Promise<
+  Map<string, { items: PeriodReturnItem[]; consecutive: ConsecutiveInfo | null }>
+> {
+  const map = new Map<string, { items: PeriodReturnItem[]; consecutive: ConsecutiveInfo | null }>()
   for (const code of codes) {
-    const items = await fetchFundPeriodReturns(code)
-    if (items.length > 0) map.set(code, items)
+    const result = await fetchFundPeriodReturns(code)
+    if (result.items.length > 0) map.set(code, result)
   }
   return map
 }

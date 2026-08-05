@@ -40,7 +40,7 @@ import { getFundType } from '@/modules/fund/catalog/fund-code-catalog'
 import { useCacheStore } from '@/modules/fund/cache-store'
 import { useHoldingStore } from '@/modules/holding/holding-store'
 import { useSettingsStore } from '@/modules/settings/settings-store'
-import { fetchFundPeriodReturnsBatch, type PeriodReturnItem } from '@/modules/fund/services/fund-period-returns'
+import { fetchFundPeriodReturnsBatch, type PeriodReturnItem, type ConsecutiveInfo } from '@/modules/fund/services/fund-period-returns'
 
 /** 推算持仓缓存条目 */
 interface EstimatedCacheEntry { data: EstimatedHoldings; cachedDate: string }
@@ -129,12 +129,20 @@ export const useFundStore = defineStore('fund', () => {
     return periodReturnsMap.value.get(fundCode)
   }
 
-  /** 批量获取基金周期收益，结果存入 periodReturnsMap */
+  /** PC 端连续涨跌缓存 - key 为基金代码 */
+  const consecutiveDaysMap = ref<Map<string, ConsecutiveInfo>>(new Map())
+
+  /** 获取指定基金的连续涨跌信息 */
+  function getConsecutiveDays(fundCode: string): ConsecutiveInfo | null {
+    return consecutiveDaysMap.value.get(fundCode) ?? null
+  }
+
+  /** 批量获取基金周期收益 + 连续涨跌，结果存入对应 Map */
   async function fetchPeriodReturns(codes: string[]): Promise<void> {
     const map = await fetchFundPeriodReturnsBatch(codes)
-    // 合并结果：保留已有数据，新数据覆盖
-    for (const [code, items] of map) {
+    for (const [code, { items, consecutive }] of map) {
       periodReturnsMap.value.set(code, items)
+      if (consecutive) consecutiveDaysMap.value.set(code, consecutive)
     }
   }
 
@@ -1198,7 +1206,7 @@ export const useFundStore = defineStore('fund', () => {
     fundCodes, fundNameMap, valuationMap, estimatedGszzlMap, stockPrevDayCache, stockRealtimeCache,
     t1HoldingsCache, estimatedHoldingsCache, intradayMap, refreshStatus,
     lastRefreshTime, lastRefreshDate, viewMode, sortField, sortDirection, columnConfig,
-    t2HintPending, periodReturnsMap,
+    t2HintPending, periodReturnsMap, consecutiveDaysMap,
     // 计算属性
     isLoading, fundCount,
     // 读取
@@ -1223,6 +1231,6 @@ export const useFundStore = defineStore('fund', () => {
     setSort, updateIntradayPoints, fetchIntradayHistory, seedFromCache, saveColumnConfig, restoreColumnConfig,
     fetchValuation, refreshAllValuations,
     startStockPreload, startRealtimeEstimate,
-    getPeriodReturns, fetchPeriodReturns,
+    getPeriodReturns, fetchPeriodReturns, getConsecutiveDays,
   }
 })
