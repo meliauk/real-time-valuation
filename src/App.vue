@@ -80,6 +80,7 @@ function closeStartupNotice(): void {
 /* 全屏视图：隐藏底部导航栏与跑马灯，不保留底部留白。
    登录/注册页全屏沉浸，与基金详情页同处理。 */
 const isFullscreenView = computed(() =>
+  route.path === '/pc' ||
   route.path === '/login' || route.path === '/register' ||
   route.path === '/news/detail' || route.path.startsWith('/fund/'),
 )
@@ -124,6 +125,11 @@ watch(() => settingsStore.enableGlassEffect, (enabled) => {
   overscroll-behavior: contain;
 }
 .app-layout:has(.news-page, .fund-detail-shell) .app-main {
+  padding-bottom: 0;
+}
+/* PC 三栏布局：去掉移动端宽度限制与底部留白 */
+.app-layout:has(.pc-home) .app-main {
+  max-width: none;
   padding-bottom: 0;
 }
 </style>

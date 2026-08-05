@@ -40,6 +40,7 @@ import { getFundType } from '@/modules/fund/catalog/fund-code-catalog'
 import { useCacheStore } from '@/modules/fund/cache-store'
 import { useHoldingStore } from '@/modules/holding/holding-store'
 import { useSettingsStore } from '@/modules/settings/settings-store'
+import { fetchFundPeriodReturnsBatch, type PeriodReturnItem } from '@/modules/fund/services/fund-period-returns'
 
 /** 推算持仓缓存条目 */
 interface EstimatedCacheEntry { data: EstimatedHoldings; cachedDate: string }
@@ -119,6 +120,23 @@ export const useFundStore = defineStore('fund', () => {
 
   /** T+2 提示标志：首次检测到 T+2 基金时置 true，由页面消费后置 false */
   const t2HintPending = ref(false)
+
+  /** PC 端周期收益缓存 - key 为基金代码 */
+  const periodReturnsMap = ref<Map<string, PeriodReturnItem[]>>(new Map())
+
+  /** 获取指定基金的周期收益 */
+  function getPeriodReturns(fundCode: string): PeriodReturnItem[] | undefined {
+    return periodReturnsMap.value.get(fundCode)
+  }
+
+  /** 批量获取基金周期收益，结果存入 periodReturnsMap */
+  async function fetchPeriodReturns(codes: string[]): Promise<void> {
+    const map = await fetchFundPeriodReturnsBatch(codes)
+    // 合并结果：保留已有数据，新数据覆盖
+    for (const [code, items] of map) {
+      periodReturnsMap.value.set(code, items)
+    }
+  }
 
   /** 获取指定基金的估值数据 */
   function getValuation(fundCode: string): FundValuation | undefined {
@@ -1180,7 +1198,7 @@ export const useFundStore = defineStore('fund', () => {
     fundCodes, fundNameMap, valuationMap, estimatedGszzlMap, stockPrevDayCache, stockRealtimeCache,
     t1HoldingsCache, estimatedHoldingsCache, intradayMap, refreshStatus,
     lastRefreshTime, lastRefreshDate, viewMode, sortField, sortDirection, columnConfig,
-    t2HintPending,
+    t2HintPending, periodReturnsMap,
     // 计算属性
     isLoading, fundCount,
     // 读取
@@ -1205,5 +1223,6 @@ export const useFundStore = defineStore('fund', () => {
     setSort, updateIntradayPoints, fetchIntradayHistory, seedFromCache, saveColumnConfig, restoreColumnConfig,
     fetchValuation, refreshAllValuations,
     startStockPreload, startRealtimeEstimate,
+    getPeriodReturns, fetchPeriodReturns,
   }
 })

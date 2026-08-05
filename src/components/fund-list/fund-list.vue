@@ -1,9 +1,9 @@
 <template>
   <!-- 基金列表 - 表格视图 / 卡片视图 双模式 -->
-  <div class="fund-list-container">
+  <div class="fund-list-container" :class="{ 'pc-mode': pcMode }">
 
     <!-- 卡片视图工具栏（视图切换 + 操作）——位于滚动区之外，固定不随滚动隐藏，避开 sticky 交互 bug -->
-    <div v-if="viewMode === 'card'" class="card-toolbar">
+    <div v-if="viewMode === 'card' && !pcMode" class="card-toolbar">
       <button class="hdr-btn" @click="toggleViewMode" title="切换表格视图">
         <el-icon><List /></el-icon>
         <span style="font-size:11px; margin-left:4px">表格</span>
@@ -51,8 +51,8 @@
                 <!-- ctrl 列表头：视图切换 + 排序下拉 + 操作 -->
                 <th class="col-ctrl sticky-col-header">
                   <div class="ctrl-header">
-                    <!-- 卡片/表格切换 -->
-                    <button class="hdr-btn" @click="toggleViewMode" :title="viewMode === 'table' ? '切换卡片视图' : '切换表格视图'">
+                    <!-- 卡片/表格切换（PC端隐藏） -->
+                    <button v-if="!pcMode" class="hdr-btn" @click="toggleViewMode" :title="viewMode === 'table' ? '切换卡片视图' : '切换表格视图'">
                       <el-icon v-if="viewMode === 'table'"><Grid /></el-icon>
                       <el-icon v-else><List /></el-icon>
                     </button>
@@ -79,8 +79,8 @@
                         </el-dropdown-menu>
                       </template>
                     </el-dropdown>
-                    <!-- 操作跳转 -->
-                    <button class="hdr-btn manage-btn" @click="goManage" title="基金管理">
+                    <!-- 操作跳转（PC端隐藏，功能由右面板替代） -->
+                    <button v-if="!pcMode" class="hdr-btn manage-btn" @click="goManage" title="基金管理">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
                       </svg>
@@ -92,6 +92,7 @@
                 <th class="col-todayProfit">今日收益</th>
                 <th class="col-totalProfit">累计收益</th>
                 <th class="col-lastNetValue">昨日净值</th>
+                <th v-if="pcMode" v-for="pr in (sortedRows[0]?.periodReturns || [])" :key="pr.title" class="col-periodReturn">{{ pr.title }}</th>
               </tr>
             </thead>
             <tbody>
@@ -114,7 +115,7 @@
                 <!-- ctrl 列：基金名称 + (持仓金额 估值日期) + [已更新 盘中涨跌] -->
                 <td class="col-ctrl fund-ctrl-cell sticky-col">
                   <div class="ctrl-stack">
-                    <span class="ctrl-name">{{ truncateName(row.fundName) }}</span>
+                    <span class="ctrl-name">{{ pcMode ? row.fundName : truncateName(row.fundName) }}</span>
                     <div class="ctrl-holding-row">
                       <span v-if="row.holdingAmount > 0" :class="['ctrl-holding', !p.holding && 'privacy-blur']">
                         ¥{{ formatCompactMoney(row.holdingAmount) }}
@@ -184,6 +185,12 @@
                       {{ row.netChangeRate > 0 ? '+' : '' }}{{ row.netChangeRate.toFixed(2) }}%
                     </span>
                   </div>
+                </td>
+                <!-- PC 端周期收益列 -->
+                <td v-if="pcMode" v-for="pr in row.periodReturns" :key="pr.title" class="col-periodReturn">
+                  <span :class="['period-val font-number', pr.value > 0 ? 'text-rise' : pr.value < 0 ? 'text-fall' : 'text-flat']">
+                    {{ pr.value > 0 ? '+' : '' }}{{ pr.value.toFixed(2) }}%
+                  </span>
                 </td>
               </tr>
             </tbody>
@@ -306,7 +313,7 @@
  * 长按 → 浮动菜单（编辑持仓/清空/删除）
  */
 
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, type PropType } from 'vue'
 import { useRouter } from 'vue-router'
 import { List, Grid, Delete, Warning } from '@element-plus/icons-vue'
 import ChangeIndicator from '@/components/shared/change-indicator.vue'
@@ -320,12 +327,14 @@ import type { ViewMode, SortField, SortDirection } from '@/modules/fund/fund-typ
 import { STORAGE_KEYS } from '@/config/constants'
 import { formatProfitCompact, formatCompactMoney } from '@/shared/utils/money-format'
 
-const props = defineProps<{
-  sortedRows: FundRowData[]
-  viewMode: ViewMode
-  sortField: SortField
-  sortDirection: SortDirection
-}>()
+const props = defineProps({
+  sortedRows: { type: Array as PropType<FundRowData[]>, required: true },
+  viewMode: { type: String as PropType<ViewMode>, required: true },
+  sortField: { type: String as PropType<SortField>, required: true },
+  sortDirection: { type: String as PropType<SortDirection>, required: true },
+  /** PC 端模式：强制表格视图，隐藏视图切换 */
+  pcMode: { type: Boolean, default: false },
+})
 
 const emit = defineEmits<{
   removeFund: [fundCode: string]
@@ -928,6 +937,22 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
+/* PC 端周期收益列 */
+.col-periodReturn {
+  text-align: right;
+}
+.fund-table th.col-periodReturn {
+  text-align: right;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.period-val {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* 实时呼吸点 */
 .rt-dot {
   display: inline-block;
@@ -1056,6 +1081,23 @@ onUnmounted(() => {
 .col-lastNetValue { width: calc((100% - 180px) / 3); }
 
 /* ===== 排序下拉选中态 ===== */
+
+/* ===== PC 端适配 ===== */
+.fund-list-container.pc-mode .list-body {
+  padding-bottom: 0;
+}
+.fund-list-container.pc-mode .col-ctrl {
+  width: 160px;
+}
+.fund-list-container.pc-mode .col-todayProfit {
+  width: calc((100% - 160px) / 3);
+}
+.fund-list-container.pc-mode .col-totalProfit {
+  width: calc((100% - 160px) / 3);
+}
+.fund-list-container.pc-mode .col-lastNetValue {
+  width: calc((100% - 160px) / 3);
+}
 
 /* ===== 移动端 ===== */
 @media (max-width: 767px) {
