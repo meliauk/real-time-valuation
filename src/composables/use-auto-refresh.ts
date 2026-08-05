@@ -129,6 +129,9 @@ export function useAutoRefresh() {
     // 手机端后台冻结→次日恢复：实时缓存可能带昨日 stale 值，先清过期再刷新，
     // 避免 loop 重拉前显示异常（A股交易日已变即清空，同日不动）。
     fundStore.expireStaleRealtimeCache()
+    // 同理剥离 valuationMap 里跨日残留的当日字段：冻结期间未跑跨日检测时，昨日确认值
+    // 会被刷新链路的防闪烁分支继承，导致今日涨跌幅冻结在昨日。幂等，同日无副作用。
+    fundStore.expireCrossDayValuations()
     const gap = Date.now() - fundStore.lastRefreshTime
     if (gap >= 0 && gap < VISIBILITY_REFRESH_MIN_GAP_MS) return
     await fundStore.refreshAllValuations()
