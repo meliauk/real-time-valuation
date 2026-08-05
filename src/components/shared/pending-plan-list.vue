@@ -66,12 +66,22 @@ function isFailed(p: PendingAction): boolean {
   return p.status === PendingActionStatus.Failed
 }
 
+/** 日期 YYYY-MM-DD → M.D（如 2026-08-05 → 8.5），与用户口语一致，也更省横向空间 */
+function shortDate(date: string): string {
+  const [, m, d] = date.split('-')
+  if (!m || !d) return date
+  return `${Number(m)}.${Number(d)}`
+}
+
+/** 状态文案。
+ *  正常等待：「待 8.5 日净值更新确认」——T+1 是当天、T+2 是次日，日期由 scheduledDate 直接反映，
+ *  两者共用一套文案即可，无需按 delayDays 分支。
+ *  异常（计划日已过仍取不到净值）：追加重试次数，让用户知道系统在持续尝试而非卡死。 */
 function statusText(p: PendingAction): string {
-  if (isFailed(p)) return `${p.scheduledDate} 未成交${p.failedReason ? `（${p.failedReason}）` : ''}`
-  // 已尝试过但未取到净值：透出重试进度，让用户知道系统在等而不是卡死
+  if (isFailed(p)) return `${shortDate(p.scheduledDate)} 日未成交${p.failedReason ? `（${p.failedReason}）` : ''}`
   const tried = p.attemptCount ?? 0
-  if (tried > 0) return `${p.scheduledDate} 待净值（已重试 ${tried} 次）`
-  return `${p.scheduledDate} 确认`
+  const base = `待 ${shortDate(p.scheduledDate)} 日净值更新确认`
+  return tried > 0 ? `${base}（已重试 ${tried} 次）` : base
 }
 
 function statusClass(p: PendingAction): string {
@@ -146,6 +156,10 @@ async function onCancel(p: PendingAction): Promise<void> {
   gap: var(--spacing-sm);
   padding: 6px 0;
   border-top: 1px solid var(--border-default);
+  /* 窄屏换行：状态文案（「待 8.5 日净值更新确认（已重试 N 次）」）较长，
+     与左侧金额挤在一行会溢出重叠。允许换行后，空间不足时 .plan-meta 整体落到第二行。 */
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 .plan-item:first-of-type { border-top: none; }
 
@@ -154,7 +168,7 @@ async function onCancel(p: PendingAction): Promise<void> {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
 }
 .plan-type {
   font-size: 10px;
@@ -179,17 +193,28 @@ async function onCancel(p: PendingAction): Promise<void> {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+  /* 金额不参与压缩：早期无此保护，状态文案变长时金额被挤压与日期重叠 */
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .plan-meta {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
+  /* 不再 flex-shrink:0——它会强占宽度把左侧金额挤到重叠。
+     改为可收缩 + 允许整体换行，宽度不足时自然落到第二行右对齐。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
 }
 .plan-date {
   font-size: 10px;
   color: var(--text-muted);
+  min-width: 0;
+  /* 极窄屏兜底：文案再长也不撑破容器 */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* 超期未成交：红色，提示需用户手动处理 */
 .plan-date.status-failed {
