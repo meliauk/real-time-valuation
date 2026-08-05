@@ -1,106 +1,216 @@
+<template>
+  <!--
+    待确认计划列表（T+1 / T+2 加仓·减仓）。
+    加仓/减仓提交后先生成 PendingAction，待净值确认日自动执行；
+    在此可查看并撤销尚未执行的计划。逻辑全部走 holdingStore（getPendingByFund / cancelPendingAction）。
+    fundCode 为空时展示全部待确认计划（全局视图，如管理页）；非空时只展示该基金的计划（详情页）。
+  -->
+  <div v-if="plans.length > 0" class="pending-plan-list">
+    <div class="plan-head">
+      <span class="plan-title">待确认计划</span>
+      <span class="plan-count font-number">{{ plans.length }}</span>
+    </div>
+
+    <div v-for="p in plans" :key="p.id" class="plan-item">
+      <div class="plan-main">
+        <span :class="['plan-type', p.type === 'add' ? 'type-add' : 'type-reduce']">
+          {{ p.type === 'add' ? '加仓' : '减仓' }}
+        </span>
+        <span v-if="showFund" class="plan-fund-name">{{ fundName(p.fundCode) }}</span>
+        <span class="plan-amount font-number" :class="{ 'privacy-blur': !privacy.holding }">
+          {{ p.type === 'add' ? '¥' : '' }}{{ formatAmount(p) }}{{ p.type === 'add' ? '' : ' 份' }}
+        </span>
+      </div>
+      <div class="plan-meta">
+        <span class="plan-date" :class="statusClass(p)">{{ statusText(p) }}</span>
+        <button class="plan-cancel-btn" @click="onCancel(p)">{{ isFailed(p) ? '清除' : '取消计划' }}</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
 /**
- * 持仓板块类型定义
- *
- * 持仓操作记录 + T+1 待确认操作（用户加仓/减仓/编辑的变更日志与延迟执行）。
- * 持仓记录本身（Holding）在 fund-types，因估值流程依赖；操作记录归此板块。
+ * 待确认计划列表组件 —— 详情页（单基金）与管理页（全局）共用。
+ * 数据来自 holdingStore.pendingOnly（仅 status===Pending），取消调用 cancelPendingAction。
  */
+import { computed } from 'vue'
+import { ElMessage } from 'element-plus'
+import { useHoldingStore } from '@/modules/holding/holding-store'
+import { useFundStore } from '@/modules/fund/fund-store'
+import { useSettingsStore } from '@/modules/settings/settings-store'
+import { confirm } from '@/composables/use-confirm'
+import type { PendingAction } from '@/modules/holding/holding-types'
+import { PendingActionStatus } from '@/modules/holding/holding-types'
 
-/** 持仓操作类型枚举 */
-export enum HoldingActionType {
-  /** 加仓 */
-  Add = 'add',
-  /** 减仓 */
-  Reduce = 'reduce',
-  /** 编辑修改 */
-  Edit = 'edit',
-  /** 结算清仓 */
-  Settle = 'settle',
+const props = defineProps<{
+  /** 限定基金代码；为空时展示全部待确认计划（全局视图） */
+  fundCode?: string
+}>()
+
+const holdingStore = useHoldingStore()
+const fundStore = useFundStore()
+const settingsStore = useSettingsStore()
+const privacy = computed(() => settingsStore.privacy)
+
+/** 是否展示基金名（全局视图才需要，单基金视图无需重复展示当前基金名） */
+const showFund = computed(() => !props.fundCode)
+
+/** 待确认计划列表：单基金走 getPendingByFund，全局走 pendingOrFailed。
+ *  含 Failed（超期未能自动入账）——必须可见，否则用户不知道计划没生效。 */
+const plans = computed<PendingAction[]>(() =>
+  props.fundCode ? holdingStore.getPendingByFund(props.fundCode) : holdingStore.pendingOrFailed,
+)
+
+function isFailed(p: PendingAction): boolean {
+  return p.status === PendingActionStatus.Failed
 }
 
-/** 持仓操作记录 - 加仓/减仓/编辑的变更日志 */
-export interface HoldingAction {
-  /** 操作唯一ID */
-  id: string
-  /** 基金代码 */
-  fundCode: string
-  /** 操作类型 */
-  type: HoldingActionType
-  /** 操作前份额 */
-  sharesBefore: number
-  /** 操作后份额 */
-  sharesAfter: number
-  /** 操作前成本 */
-  costBefore: number
-  /** 操作后成本 */
-  costAfter: number
-  /** 操作时间戳 */
-  timestamp: number
-  /** 备注 */
-  note?: string
+function statusText(p: PendingAction): string {
+  if (isFailed(p)) return `${p.scheduledDate} 未成交${p.failedReason ? `（${p.failedReason}）` : ''}`
+  // 已尝试过但未取到净值：透出重试进度，让用户知道系统在等而不是卡死
+  const tried = p.attemptCount ?? 0
+  if (tried > 0) return `${p.scheduledDate} 待净值（已重试 ${tried} 次）`
+  return `${p.scheduledDate} 确认`
 }
 
-/** T+1 待确认操作状态枚举 */
-export enum PendingActionStatus {
-  /** 待执行 - 等待确认净值后自动执行 */
-  Pending = 'pending',
-  /** 已执行 - 确认净值后已自动应用 */
-  Executed = 'executed',
-  /** 已取消 - 用户手动取消 */
-  Cancelled = 'cancelled',
-  /** 已失效 - 超过最大等待窗口仍取不到确认净值，需用户手动处理 */
-  Failed = 'failed',
+function statusClass(p: PendingAction): string {
+  return isFailed(p) ? 'status-failed' : ''
 }
 
-/** T+1 待确认操作 - 加仓/减仓延迟到确认净值后执行 */
-export interface PendingAction {
-  /** 操作唯一ID */
-  id: string
-  /** 基金代码 */
-  fundCode: string
-  /** 操作类型 */
-  type: 'add' | 'reduce'
-  /** 加仓金额（type=add）或 减仓份额（type=reduce） */
-  amount: number
-  /** 操作时的参考净值 */
-  referenceNav: number
-  /** 预计确认日期 YYYY-MM-DD（下一交易日） */
-  scheduledDate: string
-  /** 用户操作时间戳 */
-  operateTime: number
-  /** 操作状态 */
-  status: PendingActionStatus
-  /** 执行时使用的确认净值 */
-  executedNav?: number
-  /** 执行时实际采用的净值日期（可能晚于 scheduledDate：停牌/延迟披露时顺延到下一个有净值的交易日） */
-  executedNavDate?: string
-  /** 执行时间戳 */
-  executedAt?: number
-  /** 失效原因（status=Failed 时填，供 UI 提示用户手动处理） */
-  failedReason?: string
-  /** 已实际尝试结算的「不同日期」次数。
-   *  超期判定不能只看自然日历：用户出差两周没开 app，回来第一次尝试就被判超期，
-   *  会把本可正常成交的计划误杀成 Failed。必须"确实试过且失败"才累计。 */
-  attemptCount?: number
-  /** 最近一次尝试结算的日期 YYYY-MM-DD（同日多次刷新只计一次尝试） */
-  lastAttemptDate?: string
-  /** 备注 */
-  note?: string
-  /** 创建时间戳 */
-  createdAt: number
+function fundName(code: string): string {
+  return fundStore.resolveFundName(code)
 }
 
-/** 仪表盘统计数据（涨跌幅驱动模型聚合） */
-export interface DashboardStats {
-  /** 持有金额 */
-  totalHoldingAmount: number
-  /** 今日收益金额 */
-  todayProfit: number
-  /** 累计收益金额 */
-  totalProfit: number
-  /** 收益率（累计收益 / 投入本金，百分比） */
-  overallChangeRate: number
-  /** 投入本金合计 */
-  totalCost: number
-  /** 今日收益率（今日收益 / 昨日持有金额，百分比） */
-  todayReturnRate: number
+function formatAmount(p: PendingAction): string {
+  // 加仓金额按元、2 位；减仓份额按份、2 位
+  return p.type === 'add'
+    ? p.amount.toFixed(2)
+    : p.amount.toFixed(2)
 }
+
+async function onCancel(p: PendingAction): Promise<void> {
+  const actionLabel = p.type === 'add' ? `加仓 ¥${p.amount.toFixed(2)}` : `减仓 ${p.amount.toFixed(2)} 份`
+  const fundLabel = props.fundCode ? '' : `「${fundStore.resolveFundName(p.fundCode)}」`
+  const confirmed = await confirm({
+    title: isFailed(p) ? '清除未成交计划' : '取消待确认计划',
+    desc: isFailed(p)
+      ? `${fundLabel}的${actionLabel}计划在 ${p.scheduledDate} 未能成交，已不会再自动执行。清除后如仍需操作请重新提交。`
+      : `确认取消${fundLabel}的${actionLabel}计划？取消后将不会在 ${p.scheduledDate} 执行。`,
+    confirmText: isFailed(p) ? '清除' : '确认取消',
+    cancelText: '保留',
+  })
+  if (!confirmed) return
+  const ok = holdingStore.cancelPendingAction(p.id)
+  if (ok) ElMessage.success(isFailed(p) ? '已清除该计划' : '已取消该计划')
+  else ElMessage.warning('该计划已执行或不存在，无法取消')
+}
+</script>
+
+<style scoped>
+.pending-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+}
+
+.plan-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.plan-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.plan-count {
+  font-size: 10px;
+  color: var(--color-primary-light);
+  background: var(--color-primary-glow);
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  line-height: 1.6;
+}
+
+.plan-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: 6px 0;
+  border-top: 1px solid var(--border-default);
+}
+.plan-item:first-of-type { border-top: none; }
+
+.plan-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.plan-type {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+.type-add { background: rgba(239,68,68,0.12); color: #ef4444; }
+.type-reduce { background: rgba(34,197,94,0.12); color: #22c55e; }
+
+.plan-fund-name {
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.plan-amount {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.plan-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.plan-date {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+/* 超期未成交：红色，提示需用户手动处理 */
+.plan-date.status-failed {
+  color: #ef4444;
+}
+
+.plan-cancel-btn {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+.plan-cancel-btn:hover {
+  border-color: #f59e0b;
+  color: #f59e0b;
+  background: rgba(245,158,11,0.08);
+}
+</style>
