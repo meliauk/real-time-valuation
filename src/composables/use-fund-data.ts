@@ -15,6 +15,7 @@ import { ChangeDirection } from '@/config/enums'
 import { safeParseFloat, displayRate, roundMoney } from '@/shared/utils/safe-math'
 import { formatValuationTime, formatHoldingDate, isPastDailyBadgeReset } from '@/shared/utils/date-format'
 import { getPreviousTradingDay, getTodayStr, isCnTradingDay } from '@/modules/fund/valuation/cn-trading-day'
+import { currentMinuteTick } from '@/composables/use-clock-tick'
 import dayjs from 'dayjs'
 
 /** 基金行数据 - 估值 + 持仓 + 计算字段的合并视图 */
@@ -68,9 +69,14 @@ export function useFundData() {
   const fundStore = useFundStore()
   const holdingStore = useHoldingStore()
   const settingsStore = useSettingsStore()
+  /** 分钟级时钟：让依赖"当前时间"的字段（isUpdated 的 08:30 边界、valuationTime 的跨日）
+   *  能在时间跨过边界时自动重算。纯时间函数不是响应式的，不读它就永远不会因时间流逝而更新。 */
+  const minuteTick = currentMinuteTick()
 
   /** 基金行数据列表 */
   const fundRows = computed<FundRowData[]>(() => {
+    // 建立时间依赖：每分钟触发一次重算，使 08:30 徽章重置 / 跨日按时生效
+    void minuteTick.value
     return fundStore.fundCodes.map(code => {
       try {
         const v = fundStore.getValuation(code)
@@ -99,7 +105,7 @@ export function useFundData() {
         const currentNav = v?.prevConfirmedNav ?? v?.dwjz ?? 0
         const confirmedRate = isEstimated ? (v?.confirmedGszzl ?? 0) : (v?.gszzl ?? 0)
 
-        const todayProfit = holdingStore.calcFundTodayProfit(code, displayGszzl, v?.dwjz, gszzl, isEstimated)
+        const todayProfit = holdingStore.calcFundTodayProfit(code, displayGszzl, v?.dwjz, gszzl, isEstimated, holdingStore.resolveGszzlDate(v))
         const baseAmount = holdingStore.getFundHoldingAmount(code, v?.dwjz, gszzl, isEstimated)
         const principal = holdingStore.getPrincipal(code)
         const holdingAmount = baseAmount
