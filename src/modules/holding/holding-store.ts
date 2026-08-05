@@ -465,11 +465,16 @@ export const useHoldingStore = defineStore('holding', () => {
    *  用户出差两周没开 app，回来第一次打开时日历早已越过窗口——`executePendingActions`
    *  第一轮就把一个**本来能正常成交**的计划直接判 Failed，该入账的钱变成一条红色「未成交」。
    *  改为累计「确实尝试过取数并失败」的天数：同日多次刷新只计一次，没打开 app 的日子不计。
-   *  这样窗口的语义变成"给过 N 天真实机会"，与用户是否在线解耦。
+   *
+   *  ⚠️ 计划日当天不计入尝试：T+1 的 scheduledDate 就是提交当天，当天净值本来就要等到晚上才公布，
+   *  这属于**正常等待**而非「重试失败」。若计入，用户刚提交就会看到「已重试 1 次」，非常困惑。
+   *  只有等到计划日之后仍取不到净值，才是真的异常，才开始累计。
    *
    *  @returns 是否发生了状态变更（调用方据此决定落盘） */
   function markFailedIfExpired(action: PendingAction, reason: string): boolean {
     const today = getTodayStr()
+    // 计划日当天（及之前）取不到净值属正常等待，不计尝试、不提示
+    if (today <= action.scheduledDate) return false
     // 同一天内重复刷新只累计一次尝试
     if (action.lastAttemptDate === today) return false
     action.lastAttemptDate = today
