@@ -72,6 +72,7 @@ import IndexBar from '@/components/market/index-bar.vue'
 import { useFundData } from '@/composables/use-fund-data'
 import { useAutoRefresh } from '@/composables/use-auto-refresh'
 import { useCrossDay } from '@/composables/use-cross-day'
+import { useClockTick } from '@/composables/use-clock-tick'
 import { confirm } from '@/composables/use-confirm'
 import { useFundStore } from '@/modules/fund/fund-store'
 import { useHoldingStore } from '@/modules/holding/holding-store'
@@ -87,6 +88,9 @@ const settingsStore = useSettingsStore()
 const { sortedFundRows, dashboardStats, refreshData } = useFundData()
 useAutoRefresh()
 useCrossDay()
+// 分钟级时钟：驱动「已更新」徽章在次日 08:30 按约定清空（纯时间函数非响应式，
+// 不挂时钟则要等下一次估值刷新——交易时段才跑，即 09:30 之后——徽章才消失）
+useClockTick()
 
 // ===== 手动刷新 =====
 const refreshing = ref(false)
