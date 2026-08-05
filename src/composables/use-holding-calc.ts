@@ -26,7 +26,7 @@ export function useHoldingCalc(fundCode: () => string) {
     const v = fundStore.getValuation(fundCode())
     const gszzl = v?.gszzl ?? 0
     const isEstimated = v?.isEstimated ?? true
-    return holdingStore.calcFundTodayProfit(fundCode(), gszzl, v?.dwjz, gszzl, isEstimated)
+    return holdingStore.calcFundTodayProfit(fundCode(), gszzl, v?.dwjz, gszzl, isEstimated, holdingStore.resolveGszzlDate(v))
   })
 
   /** 累计盈亏 = 持有金额 - 本金（复利累乘的精确结果）
