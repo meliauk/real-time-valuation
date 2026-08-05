@@ -120,7 +120,7 @@
                         ¥{{ formatCompactMoney(row.holdingAmount) }}
                       </span>
                       <span v-else class="ctrl-holding text-muted">--</span>
-                      <span v-if="pendingLabel(row.fundCode)" class="ctrl-pending-badge" :class="pendingLabel(row.fundCode) === '买' ? 'badge-buy' : 'badge-sell'">{{ pendingLabel(row.fundCode) }}</span>
+                      <span v-if="pendingBadge(row.fundCode)" class="ctrl-pending-badge" :class="pendingBadge(row.fundCode)!.cls">{{ pendingBadge(row.fundCode)!.text }}</span>
                       <span class="ctrl-date">{{ formatDate(row.valuationTime) }}</span>
                     </div>
                     <!-- 实时涨跌幅 + 已更新徽章：实时在左、已更新在右。
@@ -254,7 +254,7 @@
           </div>
 
           <div class="card-bottom">
-            <span v-if="pendingLabel(row.fundCode)" class="card-pending-badge" :class="pendingLabel(row.fundCode) === '买' ? 'badge-buy' : 'badge-sell'">{{ pendingLabel(row.fundCode) }}</span>
+            <span v-if="pendingBadge(row.fundCode)" class="card-pending-badge" :class="pendingBadge(row.fundCode)!.cls">{{ pendingBadge(row.fundCode)!.text }}</span>
             <span class="card-time text-muted">{{ formatDate(row.valuationTime) }}</span>
             <button class="card-del" @click.stop="$emit('removeFund', row.fundCode)" title="删除">
               <el-icon><Delete /></el-icon>
@@ -315,7 +315,6 @@ import PrivacyPopover from '@/components/shared/privacy-popover.vue'
 import { useSettingsStore } from '@/modules/settings/settings-store'
 import { useHoldingStore } from '@/modules/holding/holding-store'
 import { PendingActionStatus } from '@/modules/holding/holding-types'
-import { getTodayStr } from '@/modules/fund/valuation/cn-trading-day'
 import type { FundRowData } from '@/composables/use-fund-data'
 import type { ViewMode, SortField, SortDirection } from '@/modules/fund/fund-types'
 import { STORAGE_KEYS } from '@/config/constants'
@@ -342,16 +341,34 @@ const holdingStore = useHoldingStore()
 const p = computed(() => settingsStore.privacy)
 const privacyPopoverVisible = ref(false)
 
-/** 待确认操作标签：该基金有 pending 的买卖计划时返回 "买"/"卖" */
-function pendingLabel(fundCode: string): string | null {
-  const today = getTodayStr()
-  const pending = holdingStore.pendingActions.find(
-    a => a.fundCode === fundCode && a.status === PendingActionStatus.Pending,
-  )
-  if (!pending) return null
-  // scheduledDate 已过 → 不展示
-  if (pending.scheduledDate <= today) return null
-  return pending.type === 'add' ? '买' : '卖'
+/** 待确认操作徽章：该基金有 pending 的买卖计划时返回徽章内容，无则 null。
+ *  ⚠️ 判据必须与 executePendingActions 的结算条件同步——旧实现用 `scheduledDate <= today` 隐藏徽章，
+ *  而结算恰恰要 `scheduledDate <= today` 才开始尝试执行，两者在到期当天正好错开：徽章已消失，
+ *  但确认净值往往当晚才出（停牌/延迟披露时更久），持有金额尚未变动，
+ *  用户看到的就是「买卖标识没了、钱却没到账」。改为跟随 status：只要仍是 Pending 就显示，
+ *  到期未结算切「待确认」态与未到期区分，执行后 status→Executed 徽章自然消失。
+ *  同时按 filter 汇总多笔计划（旧 find 只取第一条，多计划时漏显）。 */
+/** 待确认操作徽章：该基金有 pending 的买卖计划时返回徽章内容，无则 null。
+ *  ⚠️ 判据必须与 executePendingActions 的结算条件同步——旧实现用 `scheduledDate <= today` 隐藏徽章，
+ *  而结算恰恰要 `scheduledDate <= today` 才开始尝试执行，两者在到期当天正好错开：徽章已消失，
+ *  但确认净值当晚才出，持有金额尚未变动，用户看到的就是「买卖标识没了、钱却没到账」。
+ *  改为跟随 status：只要仍是 Pending 就显示买/卖，净值确认入账后 status→Executed 自然消失。
+ *  按 filter 汇总多笔计划（旧 find 只取第一条，多计划时漏显）。 */
+function pendingBadge(fundCode: string): { text: string; cls: string } | null {
+  const all = holdingStore.pendingActions.filter(a => a.fundCode === fundCode)
+  // 超期未成交优先提示：这是「钱没入账」的唯一入口线索
+  if (all.some(a => a.status === PendingActionStatus.Failed)) {
+    return { text: '未成交', cls: 'badge-failed' }
+  }
+  const list = all.filter(a => a.status === PendingActionStatus.Pending)
+  if (list.length === 0) return null
+  const hasAdd = list.some(a => a.type === 'add')
+  const hasReduce = list.some(a => a.type === 'reduce')
+  const base = hasAdd && hasReduce ? '买卖' : hasAdd ? '买' : '卖'
+  return {
+    text: list.length > 1 ? `${base}${list.length}` : base,
+    cls: hasReduce && !hasAdd ? 'badge-sell' : 'badge-buy',
+  }
 }
 
 // ===== 排序选项 =====
@@ -818,6 +835,12 @@ onUnmounted(() => {
   border: 1px solid rgba(34, 197, 94, 0.3);
   background: rgba(34, 197, 94, 0.12);
 }
+/* 超期未成交：红色实心边，最高提示优先级 */
+.ctrl-pending-badge.badge-failed {
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.16);
+}
 
 /* 已更新徽章 + 盘中涨跌幅 同一行 */
 .ctrl-status-row {
@@ -1012,6 +1035,12 @@ onUnmounted(() => {
   color: #22c55e;
   border: 1px solid rgba(34, 197, 94, 0.3);
   background: rgba(34, 197, 94, 0.12);
+}
+/* 超期未成交：红色实心边，最高提示优先级 */
+.card-pending-badge.badge-failed {
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.16);
 }
 .card-del { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 4px; border-radius: var(--radius-sm); transition: all var(--transition-fast); font-size: var(--font-sm); }
 .card-del:hover { color: var(--color-rise); background: rgba(239,68,68,0.1); }
