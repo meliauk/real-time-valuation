@@ -3,16 +3,16 @@
   <div
     class="dashboard-strip glass-card"
     :class="[
-      { 'is-collapsed': collapsed },
+      { 'is-collapsed': collapsed, 'pc-mode': pcMode },
       collapsed ? 'strip-' + overallColor : ''
     ]"
     role="button"
     tabindex="0"
     :aria-expanded="!collapsed"
-    :title="collapsed ? '展开统计' : '收起统计'"
-    @click="toggleCollapse"
-    @keydown.enter.prevent="toggleCollapse"
-    @keydown.space.prevent="toggleCollapse"
+    :title="pcMode ? '' : (collapsed ? '展开统计' : '收起统计')"
+    @click="pcMode ? undefined : toggleCollapse"
+    @keydown.enter.prevent="pcMode ? undefined : toggleCollapse"
+    @keydown.space.prevent="pcMode ? undefined : toggleCollapse"
   >
     <!-- 左侧渐变光条 -->
     <div class="strip-accent"></div>
@@ -55,8 +55,8 @@
       </div>
     </div>
 
-    <!-- 右侧展开/收起色条按钮（视觉指示，点击冒泡到整条） -->
-    <button class="collapse-tab" tabindex="-1" aria-hidden="true">
+    <!-- 右侧展开/收起色条按钮（PC 端隐藏，视觉指示，点击冒泡到整条） -->
+    <button v-if="!pcMode" class="collapse-tab" tabindex="-1" aria-hidden="true">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <polyline v-if="collapsed" points="15 18 9 12 15 6" />
         <polyline v-else points="9 18 15 12 9 6" />
@@ -66,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, type PropType } from 'vue'
 import NumberTransition from '@/components/shared/number-transition.vue'
 import { formatProfitWithColor, formatRateWithColor } from '@/shared/utils/money-format'
 import { useSettingsStore } from '@/modules/settings/settings-store'
@@ -74,11 +74,12 @@ import type { DashboardStats } from '@/modules/holding/holding-types'
 
 const COLLAPSED_KEY = 'dashboard_stats_collapsed'
 
-const props = defineProps<{
-  stats: DashboardStats
-}>()
-
-const collapsed = ref(localStorage.getItem(COLLAPSED_KEY) === '1')
+const props = defineProps({
+  stats: { type: Object as PropType<DashboardStats>, required: true },
+  /** PC 端模式：始终展开、更紧凑 */
+  pcMode: { type: Boolean, default: false },
+})
+const collapsed = ref(props.pcMode ? false : localStorage.getItem(COLLAPSED_KEY) === '1')
 
 const settingsStore = useSettingsStore()
 const p = computed(() => settingsStore.privacy)
@@ -325,6 +326,38 @@ const overallColor = computed(() => {
 }
 .text-fall {
   text-shadow: 0 0 8px var(--color-fall-glow);
+}
+
+/* PC 端紧凑模式 */
+.dashboard-strip.pc-mode {
+  padding: var(--spacing-sm) var(--spacing-md);
+  padding-right: var(--spacing-md);
+  cursor: default;
+}
+.dashboard-strip.pc-mode:focus-visible {
+  outline: none;
+}
+.dashboard-strip.pc-mode .strip-hero {
+  flex: 1;
+}
+.dashboard-strip.pc-mode .hero-value {
+  font-size: var(--font-xl);
+}
+.dashboard-strip.pc-mode .hero-label {
+  font-size: 10px;
+}
+.dashboard-strip.pc-mode .strip-divider {
+  height: 32px;
+  margin: 0 var(--spacing-md);
+}
+.dashboard-strip.pc-mode .metric-value {
+  font-size: var(--font-md);
+}
+.dashboard-strip.pc-mode .metric-rate {
+  font-size: var(--font-sm);
+}
+.dashboard-strip.pc-mode .metric-label {
+  font-size: 10px;
 }
 
 /* 移动端 */

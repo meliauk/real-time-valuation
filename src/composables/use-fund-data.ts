@@ -11,6 +11,7 @@ import { useHoldingStore } from '@/modules/holding/holding-store'
 import { useSettingsStore } from '@/modules/settings/settings-store'
 import type { IntradayPoint } from '@/modules/fund/fund-types'
 import type { SortField } from '@/modules/fund/fund-types'
+import type { PeriodReturnItem } from '@/modules/fund/services/fund-period-returns'
 import { ChangeDirection } from '@/config/enums'
 import { safeParseFloat, displayRate, roundMoney } from '@/shared/utils/safe-math'
 import { formatValuationTime, formatHoldingDate, isPastDailyBadgeReset } from '@/shared/utils/date-format'
@@ -54,6 +55,8 @@ export interface FundRowData {
   realtimePlaceholder?: boolean
   intradayPoints: IntradayPoint[]
   intradayBaseValue: number
+  /** PC 端周期收益（近1周/近1月/近3月/近6月/近1年），非 PC 端时为空数组 */
+  periodReturns: PeriodReturnItem[]
 }
 
 /** 计算走势图昨收基准 */
@@ -80,6 +83,7 @@ export function useFundData() {
     return fundStore.fundCodes.map(code => {
       try {
         const v = fundStore.getValuation(code)
+        console.log("->基金",v)
         const gszzl = v?.gszzl || 0
         const displayGszzl = displayRate(gszzl)
         const isEstimated = v?.isEstimated ?? true
@@ -177,6 +181,7 @@ export function useFundData() {
             v?.realtimeSource === '实时',
           intradayPoints: fundStore.intradayMap[code] || [],
           intradayBaseValue: computeIntradayBase(v),
+          periodReturns: fundStore.getPeriodReturns(code) || [],
         }
       } catch {
         return {
@@ -185,7 +190,7 @@ export function useFundData() {
           holdingAmount: 0, costPrice: 0, todayProfit: 0, totalProfit: 0,
           totalReturnRate: null, profitStatus: 'flat', valuationTime: '', holdingDate: '',
           isEstimated: true, isUpdated: false, hasTodayData: false, delayDays: 1,
-          intradayPoints: [], intradayBaseValue: 0,
+          intradayPoints: [], intradayBaseValue: 0, periodReturns: [],
         }
       }
     })
