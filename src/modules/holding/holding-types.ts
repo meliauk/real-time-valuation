@@ -77,6 +77,12 @@ export interface PendingAction {
   executedAt?: number
   /** 失效原因（status=Failed 时填，供 UI 提示用户手动处理） */
   failedReason?: string
+  /** 已实际尝试结算的「不同日期」次数。
+   *  超期判定不能只看自然日历：用户出差两周没开 app，回来第一次尝试就被判超期，
+   *  会把本可正常成交的计划误杀成 Failed。必须"确实试过且失败"才累计。 */
+  attemptCount?: number
+  /** 最近一次尝试结算的日期 YYYY-MM-DD（同日多次刷新只计一次尝试） */
+  lastAttemptDate?: string
   /** 备注 */
   note?: string
   /** 创建时间戳 */
