@@ -29,10 +29,14 @@ import { STORAGE_KEYS } from '@/config/constants'
 import { safeParseFloat, roundMoney, displayRate } from '@/shared/utils/safe-math'
 import { generateId } from '@/shared/utils/validation'
 import { loadJSON, saveJSON, loadString, saveString } from '@/shared/cache/local-storage-io'
-import { getTodayStr, getNowStr, getNextNTradingDay, getPreviousNTradingDay } from '@/modules/fund/valuation/cn-trading-day'
+import { getTodayStr, getNowStr, getNextNTradingDay, getPreviousNTradingDay, getTradingDayFromToday } from '@/modules/fund/valuation/cn-trading-day'
 
 /** 持仓数据版本号 - 结构变更时递增，触发自动迁移 */
 const HOLDINGS_DATA_VERSION = 4
+
+/** 待确认操作的最大等待窗口（交易日）。超过仍取不到确认净值即置 Failed，
+ *  避免因基金停牌/长期延迟披露/交易日历偏差导致计划永久悬挂在 Pending。 */
+const MAX_PENDING_WAIT_TRADING_DAYS = 10
 
 export const useHoldingStore = defineStore('holding', () => {
   // ===== 基础状态 =====
@@ -58,6 +62,13 @@ export const useHoldingStore = defineStore('holding', () => {
   const pendingOnly = computed(() =>
     pendingActions.value.filter(a => a.status === PendingActionStatus.Pending),
   )
+  /** 待执行 + 已失效（超期未成交）——UI 计划列表用：Failed 必须可见，
+   *  否则用户不知道计划没入账；用户手动取消后才消失。 */
+  const pendingOrFailed = computed(() =>
+    pendingActions.value.filter(a =>
+      a.status === PendingActionStatus.Pending || a.status === PendingActionStatus.Failed,
+    ),
+  )
   /** 活跃持仓按 fundCode 分组索引——派生自 activeHoldings（依赖 holdings ref），
    *  holdings 增删/结算翻转时 computed 自动失效重算，无需手动同步写入点。
    *  各按基金查询方法改读此索引，消除「每只基金一次 activeHoldings.filter 全表扫描」的 O(n×m)：
@@ -74,7 +85,7 @@ export const useHoldingStore = defineStore('holding', () => {
 
   // ===== 查询 =====
   function getPendingByFund(fundCode: string): PendingAction[] {
-    return pendingOnly.value.filter(a => a.fundCode === fundCode)
+    return pendingOrFailed.value.filter(a => a.fundCode === fundCode)
   }
   function getHoldingsByFund(fundCode: string): Holding[] {
     return holdingsByFund.value.get(fundCode) ?? []
@@ -137,15 +148,43 @@ export const useHoldingStore = defineStore('holding', () => {
     return roundMoney(getFundHoldingAmount(fundCode, _dwjz, _gszzl, _isEstimated) - getPrincipal(fundCode))
   }
 
+  /** 当前展示的 gszzl（今日涨跌幅）属于哪一个交易日。
+   *  用于把「按该日净值刚成交的份额」排除出今日收益基数（见 calcFundTodayProfit）。
+   *    - 已确认（isEstimated=false）：gszzl 就是 jzrq 那天的真实涨跌 → 取 jzrq
+   *    - 未确认（盘中估算）：gszzl 是今天的预估涨跌 → 取今天
+   *  各调用点统一走此函数，避免口径分裂。 */
+  function resolveGszzlDate(v?: { isEstimated?: boolean; jzrq?: string }): string {
+    if (v?.isEstimated === false && v.jzrq) return v.jzrq
+    return getTodayStr()
+  }
+
+  /** 今日收益基数：参与「今日涨跌」的持有金额合计。
+   *  排除 entryNavDate >= gszzlDate 的持仓——按该日净值刚成交的份额，其买入价已是该日收盘价，
+   *  该日涨跌与它无关。今日收益（分子）与今日收益率分母共用此函数，保证口径不分裂。 */
+  function getTodayProfitBase(fundCode: string, gszzlDate?: string): number {
+    const list = holdingsByFund.value.get(fundCode) ?? []
+    let confirmedBase = 0
+    let fallbackBase = 0
+    for (const h of list) {
+      if (gszzlDate && h.entryNavDate && h.entryNavDate >= gszzlDate) continue
+      confirmedBase += h.confirmedBaseAmount ?? 0
+      fallbackBase += h.yesterdayAmount ?? h.initialAmount ?? h.shares * h.costPrice
+    }
+    return confirmedBase > 0 ? confirmedBase : fallbackBase
+  }
+
   /** 今日收益 = 基数金额 × 涨跌幅/100。
    *  基数用 confirmedBaseAmount（基金更新前的持有金额快照），不受 syncYesterdayAmounts 推进
    *  yesterdayAmount 的影响——持有数据基金更新后会变，今日收益始终基于更新前的基数计算。
-   *  confirmedBaseAmount 为 0（新持仓尚未 sync）时兜底 yesterdayAmount。 */
-  function calcFundTodayProfit(fundCode: string, _changeRate: number, _dwjz?: number, gszzl?: number, _isEstimated?: boolean): number {
-    const list = holdingsByFund.value.get(fundCode) ?? []
-    let confirmedBase = 0
-    for (const h of list) confirmedBase += h.confirmedBaseAmount ?? 0
-    const base = confirmedBase > 0 ? confirmedBase : getYesterdayHoldingAmount(fundCode)
+   *  confirmedBaseAmount 为 0（新持仓尚未 sync）时兜底 yesterdayAmount。
+   *
+   *  ⚠️ 今日收益只由「涨跌」产生，不由「加减仓」产生：
+   *  按 D 日确认净值成交的份额，已经以 D 日收盘价入账——D 日当天那段涨幅发生在买入之前，
+   *  与这笔钱无关。若不排除，加仓当天会凭空多出一笔今日收益（¥100 按当日 +2% 的收盘净值买入，
+   *  却显示今日赚了 2 元），且金额越大越离谱。故 entryNavDate >= 当前涨跌所属日的持仓不计入基数。
+   *  gszzlDate 缺省时（调用方未传）退化为原行为，不影响历史调用点。 */
+  function calcFundTodayProfit(fundCode: string, _changeRate: number, _dwjz?: number, gszzl?: number, _isEstimated?: boolean, gszzlDate?: string): number {
+    const base = getTodayProfitBase(fundCode, gszzlDate)
     if (base <= 0) return 0
     return roundMoney(base * displayRateSafe(gszzl) / 100)
   }
@@ -176,11 +215,14 @@ export const useHoldingStore = defineStore('holding', () => {
       const principal = getPrincipal(code)
       totalCost += principal
       const baseAmount = getFundHoldingAmount(code, v?.dwjz, v?.gszzl, v?.isEstimated)
-      const todayProfit = calcFundTodayProfit(code, 0, v?.dwjz, v?.gszzl, v?.isEstimated)
+      const gszzlDate = resolveGszzlDate(v)
+      const todayProfit = calcFundTodayProfit(code, 0, v?.dwjz, v?.gszzl, v?.isEstimated, gszzlDate)
       totalHoldingAmount += baseAmount
       totalProfit += roundMoney(baseAmount - principal)
       todayProfitSum += todayProfit
-      totalYesterdayAmount += getYesterdayHoldingAmount(code)
+      // 今日收益率的分母必须与分子基数同口径：当日刚成交的份额不产生今日收益，
+      // 也不该计入分母，否则新加仓当天会把收益率稀释（分子不含、分母含）。
+      totalYesterdayAmount += getTodayProfitBase(code, gszzlDate)
     }
     const overallChangeRate = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0
     const todayReturnRate = totalYesterdayAmount > 0 ? (todayProfitSum / totalYesterdayAmount) * 100 : 0
@@ -195,13 +237,21 @@ export const useHoldingStore = defineStore('holding', () => {
   }
 
   // ===== 持仓操作 =====
-  /** 加仓 - 输入金额，自动算份额和成本价 */
-  function addHoldingByAmount(fundCode: string, amount: number, netValue: number, note?: string): Holding {
+  /** 加仓 - 输入金额，自动算份额和成本价。
+   *  @param navDate 成交净值所属日期（结算路径传 executedNavDate）。传入后该笔份额
+   *    在「涨跌所属日 <= navDate」期间不计入今日收益基数——按 D 日收盘净值买入的钱，
+   *    不该享受 D 日当天的涨幅（那段涨跌发生在买入之前）。 */
+  function addHoldingByAmount(fundCode: string, amount: number, netValue: number, note?: string, navDate?: string): Holding {
     const shares = netValue > 0 ? amount / netValue : 0
     const holding: Holding = {
       id: generateId(), fundCode, shares, costPrice: netValue,
-      holdingDate: getNowStr(), createdAt: Date.now(), settled: false,
+      // 持仓日期取成交净值日期（有则用），而非落库时刻：结算可能延迟发生
+      // （用户几天没开 app，08-04 的计划到 08-06 才补执行），此时 getNowStr() 是 08-06，
+      // 而钱实际按 08-04 净值买入、从 08-04 起就在涨跌。recalibrateHoldingsFromNav 以
+      // holdingDate 为累乘起点，用落库时刻会白丢 08-05/08-06 两天收益。
+      holdingDate: navDate || getNowStr(), createdAt: Date.now(), settled: false,
       initialAmount: amount, yesterdayAmount: amount,
+      entryNavDate: navDate,
     }
     holdings.value.push(holding)
     logAction({ id: generateId(), fundCode, type: HoldingActionType.Add, sharesBefore: 0, sharesAfter: shares, costBefore: 0, costAfter: netValue, timestamp: Date.now(), note })
@@ -302,10 +352,19 @@ export const useHoldingStore = defineStore('holding', () => {
   }
 
   // ===== T+1 待确认操作 =====
+  /** 计划确认日 = 从今天起第 (delayDays - 1) 个交易日。
+   *  口径：T+1 当天提交 → 按**当天**净值确认（当晚净值一公布即入账）；
+   *        T+2 当天提交 → 按**下一交易日**净值确认。
+   *  ⚠️ 不用 getNextNTradingDay(delayDays)：那会整整多推一天（T+1 变成次日确认），
+   *     导致钱比预期晚一个交易日入账。当日提交不区分 15:00 前后，一律按当日处理。 */
+  function resolveScheduledDate(delayDays: number): string {
+    return getTradingDayFromToday(Math.max(0, delayDays - 1))
+  }
+
   function createPendingAdd(fundCode: string, amount: number, referenceNav: number, delayDays: number = 1, note?: string): PendingAction {
     const action: PendingAction = {
       id: generateId(), fundCode, type: 'add', amount, referenceNav,
-      scheduledDate: getNextNTradingDay(delayDays), operateTime: Date.now(),
+      scheduledDate: resolveScheduledDate(delayDays), operateTime: Date.now(),
       status: PendingActionStatus.Pending, note, createdAt: Date.now(),
     }
     pendingActions.value.push(action)
@@ -315,16 +374,19 @@ export const useHoldingStore = defineStore('holding', () => {
   function createPendingReduce(fundCode: string, reduceShares: number, referenceNav: number, delayDays: number = 1, note?: string): PendingAction {
     const action: PendingAction = {
       id: generateId(), fundCode, type: 'reduce', amount: reduceShares, referenceNav,
-      scheduledDate: getNextNTradingDay(delayDays), operateTime: Date.now(),
+      scheduledDate: resolveScheduledDate(delayDays), operateTime: Date.now(),
       status: PendingActionStatus.Pending, note, createdAt: Date.now(),
     }
     pendingActions.value.push(action)
     persistPendingActions()
     return action
   }
+  /** 取消计划。Pending（尚未成交）与 Failed（超期未能自动入账）均可取消——
+   *  Failed 已不会再自动执行，允许用户清理掉，否则会永远挂在列表里。 */
   function cancelPendingAction(actionId: string): boolean {
     const action = pendingActions.value.find(a => a.id === actionId)
-    if (!action || action.status !== PendingActionStatus.Pending) return false
+    if (!action) return false
+    if (action.status !== PendingActionStatus.Pending && action.status !== PendingActionStatus.Failed) return false
     action.status = PendingActionStatus.Cancelled
     persistPendingActions()
     return true
@@ -334,9 +396,13 @@ export const useHoldingStore = defineStore('holding', () => {
    *  ⚠️ 不看 v.isEstimated：那是「今天」是否确认，与「计划日确认数据是否已出」是不同日期维度。
    *    T+1 基金盘中今天永远 isEstimated=true，若卡此守卫会导致 scheduledDate 在今天之前的计划
    *    盘中永远执行不了，得等到次日净值确认后才能补执行。
-   *  执行净值：用 scheduledDate 当天公布的确认净值（fetchFundNetValueRange 取该日一条），
-   *    不用 v.dwjz（那是 lsjz 最新条，可能是比 scheduledDate 更晚的日期，会日期错位）。
-   *    取不到当天净值 → continue 等下次刷新，绝不拿别的日期顶替。 */
+   *  执行净值：取 [scheduledDate, today] 区间内「首个 date >= scheduledDate」的确认净值。
+   *    ⚠️ 不用严格等于 scheduledDate：scheduledDate 由 A股交易日历（getNextNTradingDay）推算，
+   *    而 QDII/T+2 的披露日跟随海外市场、基金可能停牌或延迟披露、A股节假日表还是硬编码（2027+ 为空），
+   *    严格相等取不到时旧实现会 continue 到天荒地老——计划永久悬挂，钱既不入账也无任何提示。
+   *    顺延取首个可用净值符合实际申购确认规则（按下一个可确认交易日成交）。
+   *  超期保护：距 scheduledDate 超过 MAX_PENDING_WAIT_TRADING_DAYS 个交易日仍取不到净值，
+   *    置 Failed 并记录原因，交 UI 提示用户手动处理，不再无限重试。 */
   async function executePendingActions(valuationMap: Map<string, FundValuation>): Promise<void> {
     const today = getTodayStr()
     let changed = false
@@ -345,31 +411,78 @@ export const useHoldingStore = defineStore('holding', () => {
       if (action.status !== PendingActionStatus.Pending) continue
       if (action.scheduledDate > today) continue
       const v = valuationMap.get(action.fundCode)
-      // 计划日确认净值尚未出 → 等下次
-      if (!v || !v.jzrq || v.jzrq < action.scheduledDate) continue
-      // 取 scheduledDate 当天公布的确认净值执行（与 T+1/T+2 无关）
+      // 计划日确认净值尚未出 → 等下次（未超期时）
+      const navNotReady = !v || !v.jzrq || v.jzrq < action.scheduledDate
+      if (navNotReady) {
+        if (markFailedIfExpired(action, '计划日确认净值长时间未公布')) changed = true
+        continue
+      }
+      // 取 scheduledDate 起首个已公布的确认净值执行（停牌/延迟披露时顺延）
       let confirmedNav = 0
+      let navDate = ''
       try {
-        const rows = await fetchFundNetValueRange(action.fundCode, action.scheduledDate, action.scheduledDate)
-        const row = rows.find(r => r.date === action.scheduledDate)
+        const rows = await fetchFundNetValueRange(action.fundCode, action.scheduledDate, today)
+        // rows 升序，首个 date >= scheduledDate 即为该计划应成交的净值
+        const row = rows.find(r => r.date >= action.scheduledDate && r.nav > 0)
         confirmedNav = row?.nav ?? 0
+        navDate = row?.date ?? ''
       } catch {
         confirmedNav = 0
       }
-      // 当天净值取不到（停牌/延迟公布/网络失败）→ 等下次，不拿别的日期顶替
-      if (confirmedNav <= 0) continue
+      // 净值取不到（停牌/网络失败）→ 等下次；超过最大等待窗口则置 Failed
+      if (confirmedNav <= 0) {
+        if (markFailedIfExpired(action, '确认净值取数失败或基金长期停牌')) changed = true
+        continue
+      }
       if (action.type === 'add') {
-        addHoldingByAmount(action.fundCode, action.amount, confirmedNav, action.note)
+        // 传 navDate：本笔按该日确认净值成交，该日当天的涨跌不计入今日收益
+        addHoldingByAmount(action.fundCode, action.amount, confirmedNav, action.note, navDate || action.scheduledDate)
         changed = true
       } else {
-        const list = getHoldingsByFund(action.fundCode)
-        if (list.length > 0) { reduceHolding(list[0].id, action.amount, action.note); changed = true }
+        // 跨笔扣减：同一基金多次加仓会产生多笔 Holding，旧实现只对 list[0] 减仓，
+        // 且 reduceHolding 在 reduceShares >= 该笔份额时会整笔 settle，剩余待减份额被静默吞掉。
+        const reduced = reduceSharesAcrossHoldings(action.fundCode, action.amount, action.note)
+        if (reduced > 0) changed = true
       }
       action.status = PendingActionStatus.Executed
       action.executedNav = confirmedNav
+      action.executedNavDate = navDate
       action.executedAt = Date.now()
     }
     if (changed) persistPendingActions()
+  }
+
+  /** 超期判定：距计划日已过 MAX_PENDING_WAIT_TRADING_DAYS 个交易日仍未成交 → 置 Failed。
+   *  防止取不到净值的计划永久悬挂在 Pending（既不入账，UI 也一直挂着待确认徽章）。
+   *  @returns 是否发生了状态变更（调用方据此决定落盘） */
+  function markFailedIfExpired(action: PendingAction, reason: string): boolean {
+    const deadline = getNextNTradingDay(MAX_PENDING_WAIT_TRADING_DAYS, dayjs(action.scheduledDate))
+    if (getTodayStr() <= deadline) return false
+    action.status = PendingActionStatus.Failed
+    action.failedReason = reason
+    return true
+  }
+
+  /** 按持仓创建顺序跨笔扣减份额，返回实际扣减的份额总数。
+   *  逐笔扣至耗尽：单笔不足时整笔结算再继续扣下一笔，避免旧实现「只减第一笔、超出部分丢失」。 */
+  function reduceSharesAcrossHoldings(fundCode: string, reduceShares: number, note?: string): number {
+    let remaining = reduceShares
+    let reduced = 0
+    // 复制一份：reduceHolding/settleHolding 会改动 holdings，遍历中不可直接用响应式数组
+    const list = [...getHoldingsByFund(fundCode)].sort((a, b) => a.createdAt - b.createdAt)
+    for (const h of list) {
+      if (remaining <= 0) break
+      const take = Math.min(remaining, h.shares)
+      if (take <= 0) continue
+      if (take >= h.shares) {
+        settleHolding(h.id, note)
+      } else {
+        reduceHolding(h.id, take, note)
+      }
+      remaining = safeParseFloat(remaining - take)
+      reduced += take
+    }
+    return reduced
   }
 
   // ===== 昨日金额同步（净值确认后推进） =====
@@ -579,6 +692,9 @@ export const useHoldingStore = defineStore('holding', () => {
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
     pendingActions.value = all.filter(a =>
       a.status === PendingActionStatus.Pending ||
+      // Failed 需保留：这是「计划未能自动入账」的唯一线索，丢掉用户就永远不知道钱去哪了，
+      // 由用户在计划列表里手动处理（重新提交/取消）后才消失。
+      a.status === PendingActionStatus.Failed ||
       (a.executedAt != null && a.executedAt > cutoff),
     )
     // 三项恢复（holdings/actions/pendingActions）在 fund-bootstrap 内同步连续调用，
@@ -599,10 +715,10 @@ export const useHoldingStore = defineStore('holding', () => {
   }
 
   return {
-    holdings, actions, pendingActions, activeHoldings, settledHoldings, pendingOnly,
+    holdings, actions, pendingActions, activeHoldings, settledHoldings, pendingOnly, pendingOrFailed,
     getPendingByFund, getHoldingsByFund, getTotalShares, getAvgCostPrice, getPrincipal,
     getYesterdayHoldingAmount, getFundHoldingAmount, getFundAccumulatedProfit,
-    calcFundTodayProfit, calcFundTotalProfit, getProfitStatus, getDashboardStats,
+    calcFundTodayProfit, calcFundTotalProfit, getProfitStatus, getDashboardStats, resolveGszzlDate,
     addHoldingByAmount, addHoldingDirect, reduceHolding, editHolding, settleHolding,
     settleAllByFund, removeHoldingsByFund, clearAllHoldings,
     createPendingAdd, createPendingReduce, cancelPendingAction, executePendingActions,
