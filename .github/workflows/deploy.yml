@@ -22,7 +22,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       # 1. 安装并设置稳定的 pnpm 引擎（避开 npm 的底层崩溃 Bug）
       - uses: pnpm/action-setup@v3
