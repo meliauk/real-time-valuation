@@ -11,6 +11,8 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
+    <!-- 自定义域名下东财/天天基金等接口检查 Referer，设为 no-referrer 避免被拦截返回空响应 -->
+    <meta name="referrer" content="no-referrer" />
     <!-- 浏览器标签 favicon：与 app 首页 header logo 同一 SVG（public/favicon.svg），
          Vite 构建时 href 自动加 base 前缀（/real-time-valuation/favicon.svg）。
          apple-touch-icon 供 iOS 添加到主屏图标。 -->
