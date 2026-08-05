@@ -47,6 +47,8 @@ export enum PendingActionStatus {
   Executed = 'executed',
   /** 已取消 - 用户手动取消 */
   Cancelled = 'cancelled',
+  /** 已失效 - 超过最大等待窗口仍取不到确认净值，需用户手动处理 */
+  Failed = 'failed',
 }
 
 /** T+1 待确认操作 - 加仓/减仓延迟到确认净值后执行 */
@@ -69,8 +71,12 @@ export interface PendingAction {
   status: PendingActionStatus
   /** 执行时使用的确认净值 */
   executedNav?: number
+  /** 执行时实际采用的净值日期（可能晚于 scheduledDate：停牌/延迟披露时顺延到下一个有净值的交易日） */
+  executedNavDate?: string
   /** 执行时间戳 */
   executedAt?: number
+  /** 失效原因（status=Failed 时填，供 UI 提示用户手动处理） */
+  failedReason?: string
   /** 备注 */
   note?: string
   /** 创建时间戳 */
