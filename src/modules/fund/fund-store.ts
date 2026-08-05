@@ -51,6 +51,29 @@ export interface StockEntry { stockCode: string; emMarketCode?: string; stockNam
 /** 推算持仓缓存 LRU 上限 */
 const MAX_ESTIMATED_CACHE = ESTIMATE_CONFIG.MAX_ESTIMATED_CACHE
 
+/** 某基金「今日应有的确认净值日期」：T+1 期望今日确认，T+2 滞后一个交易日。
+ *  与 use-fund-data 的 expectedConfirmDate、fund-valuation-merge 的确认判定同口径。 */
+function expectedConfirmDate(delayDays?: 1 | 2): string {
+  return delayDays === 2 ? getPreviousTradingDay() : getTodayStr()
+}
+
+/** 估值携带的「已确认」信息是否仍属当日（未跨日过期）。
+ *  ⚠️ 跨日核心守卫：valuationMap 不参与跨日清理，只看 isEstimated=false 会把昨日确认值
+ *  当成今日有效——次日 fundgz 出估算时被继承，gszzl/jzrq 被原样搬到今天，之后每轮刷新的
+ *  existing 都是这个污染值，今日涨跌幅与 jzrq 永久冻结在昨日（只有清缓存才恢复）。 */
+function isConfirmationFresh(v: { jzrq?: string; delayDays?: 1 | 2 } | undefined): boolean {
+  if (!v?.jzrq) return false
+  return v.jzrq >= expectedConfirmDate(v.delayDays)
+}
+
+/** 估值条目是否携带「今日」数据（确认值达期望确认日，或盘中估算时间为今日）。
+ *  跨日后判断 existing 能否被继承/写缓存的统一判据。 */
+function isValuationFresh(v: { jzrq?: string; delayDays?: 1 | 2; gztime?: string } | undefined): boolean {
+  if (!v) return false
+  if (isConfirmationFresh(v)) return true
+  return (v.gztime?.substring(0, 10) || '') === getTodayStr()
+}
+
 export const useFundStore = defineStore('fund', () => {
   // ===== 基础状态 =====
   /** 用户关注的基金代码列表 */
@@ -100,6 +123,13 @@ export const useFundStore = defineStore('fund', () => {
   /** 获取指定基金的估值数据 */
   function getValuation(fundCode: string): FundValuation | undefined {
     return valuationMap.value.get(fundCode)
+  }
+
+  /** 上次刷新是否与本次处于同一基准日（美股 lastClosedDay）。
+   *  T+2/QDII 未确认时其 jzrq/gztime 天然落后于今日，无法用内容判"是否跨日"——
+   *  改用刷新基准日比对：同基准日=未跨日，推算值可续用防闪烁；跨日则回退重算。 */
+  function isSameBaseDayAsLastRefresh(): boolean {
+    return !!lastRefreshDate.value && lastRefreshDate.value === getBaseDay()
   }
 
   // ===== 基金代码增删 =====
@@ -477,6 +507,14 @@ export const useFundStore = defineStore('fund', () => {
       // 同步落盘本基金最新估值（含 recompute 写入的 realtimeGszzl/推算 gszzl）到 FUND_CACHE，
       // 供下次重启 seedFromCache 恢复实时胶囊 + T+2 今日涨跌。saveCache 自带 2s 防抖，高频 recompute 不疯狂 IO。
       // fundName/info 从已有缓存条目取（无则用 fundNameMap/空），避免 recompute 里重复解析名称。
+      // ⚠️ 跨日守卫：v 可能仍带昨日确认数据（valuationMap 不参与跨日清理）。无条件盖今日 cachedDate
+      //    会把过期估值「洗白」成今日缓存——seedFromCache 只校验 cachedDate，重启后 stale 值被当今日
+      //    数据 seed 回内存，刷新页面也修不好，形成自延续闭环（旧版只有清缓存能打破）。
+      //    非当日数据跳过落盘，内存照常展示，等下一轮 refreshAllValuations 拉到新值再写。
+      //    T+2/QDII 未确认例外：其 jzrq/gztime 天然落后于今日，但 recompute 刚写入的推算 gszzl/
+      //    realtimeGszzl 正是当日值，按日期判会永远存不进缓存 → 重启首屏胶囊长时间空白。
+      const isFreshT2Estimate = v.delayDays === 2 && v.isEstimated && isSameBaseDayAsLastRefresh()
+      if (!isValuationFresh(v) && !isFreshT2Estimate) continue
       const cs = useCacheStore()
       const existing = cs.getCache(fundCode)
       cs.saveCache({
@@ -726,6 +764,18 @@ export const useFundStore = defineStore('fund', () => {
       const realName = stripPlaceholderName(data.name, fundCode)
       if (realName) setFundName(fundCode, realName)
       updateIntradayPoints(fundCode, data)
+      // 预取推算持仓：添加基金路径只调 fetchValuation（拿 fundgz/lsjz/delayDays），不触发持仓拉取——
+      // 而 service loop 的 collect* 只读 estimatedHoldingsCache，持仓为空即 continue 跳过该基金，
+      // 新基金的重仓股涨跌永远不取 → T+2/QDII 涨跌幅卡 --（其 gszzl 完全靠持仓加权，fundgz 多失败）。
+      // 此处补一次预取（与 bootstrap 同链路，自带 LRU+去重，传 noop 不发股票行情请求），持仓就绪后
+      // 立即用全局缓存里已有的重仓股涨跌加权一次（recompute 内部按缓存有无加权），不等 loop 心跳唤醒。
+      void getEstimatedHoldings(fundCode, async () => new Map())
+        .then(est => {
+          if (est?.holdings.length) {
+            void recomputeFundsForStocks(est.holdings.map(h => h.stockCode))
+          }
+        })
+        .catch(() => { /* 静默：持仓拉取失败由 loop 下轮 collect 兜底 */ })
     }
     return data
   }
@@ -760,10 +810,15 @@ export const useFundStore = defineStore('fund', () => {
 
       for (const [code, valuation] of result) {
         const existing = valuationMap.value.get(code)
+        // existing 的确认信息是否仍属当日。跨日后昨日确认值必须失去继承权，
+        // 否则下面两个防闪烁分支会把昨日 gszzl/jzrq 搬到今天并逐轮自我延续。
+        const existingFresh = isConfirmationFresh(existing)
         // 已有确认值，新值反而是估算 → 继承确认状态字段、保留盘中 gz/gztime 供走势图重算
         //   （不论 T+1/T+2，已确认最高优：不被盘中估算覆盖 isEstimated/confirmedGszzl/gszzl/jzrq）。
         //   不用 continue：需放行走势图重算(596-615)，否则已确认基金盘中分时不更新。
-        if (existing && !existing.isEstimated && valuation.isEstimated) {
+        //   ⚠️ 必须同时满足 existingFresh：只比 isEstimated 不比日期时，T+1 次日 fundgz 一出估算
+        //   就会继承昨日确认值，今日涨跌幅永久冻结（表现为"清缓存才恢复"）。
+        if (existing && existingFresh && !existing.isEstimated && valuation.isEstimated) {
           valuation.isEstimated = false
           valuation.confirmedGszzl = existing.confirmedGszzl
           valuation.jzrq = existing.jzrq
@@ -771,10 +826,12 @@ export const useFundStore = defineStore('fund', () => {
           valuation.gz = existing.gz
           if (intradayMap.value[code]) intradayMap.value = { ...intradayMap.value, [code]: [] }
         }
-        // T+2 未确认：保留已有推算值防闪烁归零
+        // T+2 未确认：保留已有推算值防闪烁归零。
+        // 同日才可续用（跨日的推算值基于昨日持仓昨收，必须重算）；跨日时回退 estimatedGszzlMap，
+        // 该 Map 自带美股基准日戳、跨日已在 restore/clearCrossDayCaches 清空，不会带来旧值。
         if (valuation.delayDays === 2 && valuation.isEstimated) {
           const estGszzl = estimatedGszzlMap.value.get(code)
-          if (existing && existing.gszzl !== 0) {
+          if (existing && isSameBaseDayAsLastRefresh() && existing.gszzl !== 0) {
             valuation.gszzl = existing.gszzl
             valuation.gz = existing.gz
           } else if (estGszzl != null) {
@@ -787,6 +844,8 @@ export const useFundStore = defineStore('fund', () => {
         }
         // 保留 realtime 字段（防主刷新抹掉 loop 写入的实时值）。T+1/T+2 均需保留：
         // batchGetValuation 结果不带 realtime 字段，不加宽门控会盘中抹掉 T+1 实时胶囊。
+        // 跨日失效由 expireCrossDayValuations 统一负责（realtimeUpdatedAt 只有 HH:mm 无法自证日期），
+        // 此处不按内容判日期——T+2/QDII 未确认时 jzrq/gztime 本就落后，误判会导致胶囊每次刷新被抹掉。
         if (existing && existing.realtimeGszzl != null) {
           valuation.realtimeGszzl = existing.realtimeGszzl
           valuation.realtimeSource = existing.realtimeSource
@@ -833,19 +892,21 @@ export const useFundStore = defineStore('fund', () => {
         intradayMap.value[code] = points
       }
       if (Object.keys(intradayUpdates).length > 0) persistIntradayMap()
-      // 清理未刷新成功的过期估值（已确认基金跳过——已确认最高优，不被刷新失败回退为估算；全部失败则保留，不归零）
-      const today = getTodayStr()
+      // 清理未刷新成功的过期估值（全部失败则保留，不归零）。
+      // ⚠️ 不再用 isEstimated !== false 作前置门控：跨日残留的条目恰恰是 isEstimated=false，
+      //    旧门控把它们全部放过，兜底形同虚设。改用 isValuationFresh 统一判日期——
+      //    已确认且属于今日的跳过（已确认最高优），跨日过期的一律降级回估算态待重拉。
       if (refreshedCodes.size > 0) {
         for (const [code, v] of valuationMap.value) {
-          if (!refreshedCodes.has(code) && v.isEstimated !== false) {
-            const gzDate = v.gztime?.substring(0, 10) || ''
-            const jzrq = v.jzrq || ''
-            if (gzDate && gzDate !== today && jzrq !== today) {
-              v.isEstimated = true
-              v.gszzl = 0
-              v.gz = 0
-            }
-          }
+          if (refreshedCodes.has(code)) continue
+          if (isValuationFresh(v)) continue
+          // T+2/QDII 未确认基金的「今日涨跌」本就来自持仓加权推算，其 jzrq/gztime 天然落后，
+          // 不能用日期判新鲜。推算值存放于 estimatedGszzlMap（带美股基准日戳、跨日已清空）——
+          // 该 Map 仍有本基金条目即说明是当日推算，保留不归零，否则本轮取数失败会闪回 0.00%。
+          if (v.delayDays === 2 && v.isEstimated && estimatedGszzlMap.value.has(code)) continue
+          v.isEstimated = true
+          v.gszzl = 0
+          v.gz = 0
         }
       }
       refreshStatus.value = RefreshStatus.Success
@@ -873,7 +934,7 @@ export const useFundStore = defineStore('fund', () => {
           valuation,
           info: existingCache?.info ?? null,
           cachedAt: Date.now(),
-          cachedDate: today,
+          cachedDate: getTodayStr(),
         })
       }
       cacheStore.saveBatchCache(caches)
@@ -938,7 +999,35 @@ export const useFundStore = defineStore('fund', () => {
     removeKey(STORAGE_KEYS.ESTIMATED_HOLDINGS_CACHE)
     removeKey(STORAGE_KEYS.ESTIMATED_HOLDINGS_DATE)
     intradayMap.value = {}
+    expireCrossDayValuations()
     lastRefreshDate.value = getBaseDay()
+  }
+
+  /** 跨日剥离 valuationMap 里的「当日」语义（就地降级，不整体清空）。
+   *  valuationMap 此前不参与跨日清理：昨日确认值（isEstimated=false）会残留到次日，
+   *  被 refreshAllValuations 的防闪烁分支继承，今日涨跌幅/jzrq 永久冻结在昨日。
+   *  整体清空会让首屏闪 --，故只重置当日字段（gszzl/gz/gztime/realtime*、isEstimated 回 true），
+   *  保留 dwjz/name/delayDays/prevConfirmedNav 等跨日仍有效的信息供首屏展示，等刷新填新值。
+   *  ⚠️ 必须先判真跨日再动手：本方法也被 refreshOnVisible 每次切前台调用，
+   *  同日无条件执行会把 T+2/QDII 未确认基金的推算 gszzl 和实时胶囊每次切标签都抹掉。 */
+  function expireCrossDayValuations(): void {
+    // lastRefreshDate 为空（尚未刷新过）时不动：无从判断跨日，交首次刷新填值
+    if (!lastRefreshDate.value) return
+    if (lastRefreshDate.value === getBaseDay()) return
+    let changed = false
+    for (const [, v] of valuationMap.value) {
+      if (isValuationFresh(v)) continue
+      v.isEstimated = true
+      v.gszzl = 0
+      v.gz = 0
+      v.gztime = ''
+      v.realtimeGszzl = undefined
+      v.realtimeSource = undefined
+      v.realtimeUpdatedAt = undefined
+      changed = true
+    }
+    // ref<Map> 内元素就地改不触发响应式，需整体重新赋值让 fundRows 重算
+    if (changed) valuationMap.value = new Map(valuationMap.value)
   }
 
   /** 清空与缓存相关的内存状态（不重置 lastRefreshDate，不触发跨日重建）。
@@ -1022,12 +1111,27 @@ export const useFundStore = defineStore('fund', () => {
     for (const [code, cache] of cacheMap) {
       if (!cache.valuation || !fundCodes.value.includes(code)) continue
       if (cache.cachedDate !== today) continue
-      // T+2 未确认：用缓存的推算 gszzl 覆盖
+      // 二次防线：cachedDate 只记录「写盘时刻」，不代表估值内容属于今日。历史遗留缓存
+      // （旧版本 recompute 无条件盖今日戳写入的）仍可能带昨日 gszzl/jzrq——此处按估值内容
+      // 自身的日期再校验一次，跨日内容不 seed，避免污染值在重启后复活。
+      // T+2/QDII 未确认放行：其 jzrq/gztime 天然落后，判日期会误杀；其 gszzl 随后由下方
+      // estimatedGszzlMap（带基准日戳、跨日已清）覆盖为当日推算值，不会残留旧涨跌。
+      const isT2Estimate = cache.valuation.delayDays === 2 && cache.valuation.isEstimated
+      if (!isT2Estimate && !isValuationFresh(cache.valuation)) continue
+      // T+2 未确认：用缓存的推算 gszzl 覆盖。
+      // estimatedGszzlMap 带美股基准日戳、跨日已在 restore 时清空——取不到即说明推算值已跨日失效，
+      // 此时必须把缓存里的旧 gszzl 归零，否则昨日推算涨跌会经缓存复活（缓存 cachedDate 可能仍是今日）。
       if (cache.valuation.delayDays === 2 && cache.valuation.isEstimated) {
         const estGszzl = estimatedGszzlMap.value.get(code)
         if (estGszzl != null) {
           cache.valuation.gszzl = estGszzl
           if (cache.valuation.dwjz > 0) cache.valuation.gz = cache.valuation.dwjz * (1 + estGszzl / 100)
+        } else {
+          cache.valuation.gszzl = 0
+          cache.valuation.gz = 0
+          cache.valuation.realtimeGszzl = undefined
+          cache.valuation.realtimeSource = undefined
+          cache.valuation.realtimeUpdatedAt = undefined
         }
       }
       valuationMap.value.set(code, cache.valuation)
@@ -1096,7 +1200,7 @@ export const useFundStore = defineStore('fund', () => {
     // 收集（供 service）
     collectMissingStocks, collectOverseasAll, collectAHkAll,
     // 跨日
-    clearCrossDayCaches, clearCacheDataInMemory, expireStaleRealtimeCache,
+    clearCrossDayCaches, clearCacheDataInMemory, expireStaleRealtimeCache, expireCrossDayValuations,
     // UI 方法
     setSort, updateIntradayPoints, fetchIntradayHistory, seedFromCache, saveColumnConfig, restoreColumnConfig,
     fetchValuation, refreshAllValuations,

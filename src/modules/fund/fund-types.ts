@@ -264,6 +264,13 @@ export interface Holding {
   /** 确认时的基数金额 - syncYesterdayAmounts 推进前的值，
    *  用于保证今日收益数值不受推进影响 */
   confirmedBaseAmount?: number
+  /** 成交净值日期 YYYY-MM-DD —— 本笔份额按哪一天的确认净值买入。
+   *  今日收益只应由「涨跌」产生，不应由「加减仓」产生：按 D 日净值成交的份额已以
+   *  D 日收盘价入账，D 日当天那段涨跌发生在买入之前，与它无关。
+   *  calcFundTodayProfit 据此把「成交日 >= 当前涨跌所属日」的持仓排除出今日收益基数。
+   *  手工录入持仓（addHoldingDirect）不设此字段——用户填的是当前持有金额（昨收口径），
+   *  今日涨跌本就该作用于它，留空即沿用原行为。 */
+  entryNavDate?: string
 }
 
 // ===== 列表配置 =====

@@ -405,7 +405,7 @@ const holdingAmount = computed(() => {
 })
 const todayProfit = computed(() => {
   const v = fundStore.getValuation(fundCode.value)
-  return holdingStore.calcFundTodayProfit(fundCode.value, 0, v?.dwjz, v?.gszzl, v?.isEstimated)
+  return holdingStore.calcFundTodayProfit(fundCode.value, 0, v?.dwjz, v?.gszzl, v?.isEstimated, holdingStore.resolveGszzlDate(v))
 })
 const totalProfit = computed(() => {
   if (holdingAmount.value <= 0) return 0

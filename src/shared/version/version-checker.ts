@@ -63,14 +63,29 @@ async function checkVersion(): Promise<void> {
 }
 
 /** 刷新并绕过 index.html 缓存：用时间戳查询串让 Chrome 把请求当新 URL 回源。
- *  优先 replace（不污染 history 栈）；replace 不可用时退 reload。 */
+ *  优先 replace（不污染 history 栈）；replace 不可用时退 reload。
+ *
+ *  ⚠️ 必须清空 hash 回首页：本项目用 createWebHashHistory，当前路由记在 URL 的 # 后
+ *  （如 #/manage、#/fund/007300）。`new URL(location.href)` 会把 hash 一并带上，
+ *  只改 searchParams 不动 hash，刷新后仍停在原页——用户在基金管理页触发版本更新，
+ *  重载后看到的还是管理页，表现为「打开 app 显示的是管理页」。
+ *  版本更新语义上是「重新开始」，统一回首页；用户主动刷新(F5)与分享链接直达详情页不受影响
+ *  （那两条路径不走此函数）。 */
 function reloadBypassCache(): void {
   try {
     const u = new URL(window.location.href)
     u.searchParams.set('_v', String(Date.now()))
+    u.hash = ''  // 清路由 hash，强制回首页
     window.location.replace(u.toString())
     return
-  } catch { /* URL 构造异常，退回普通 reload */ }
+  } catch { /* URL 构造异常，退回下方兜底 */ }
+  // 兜底同样要清 hash：location.reload() 会原样保留 #/manage，与上面的修复背道而驰。
+  // 直接 replace 到不带 hash 的路径（拼时间戳仍绕缓存）。
+  try {
+    const { origin, pathname } = window.location
+    window.location.replace(`${origin}${pathname}?_v=${Date.now()}`)
+    return
+  } catch { /* 极端环境下退普通 reload */ }
   window.location.reload()
 }
 

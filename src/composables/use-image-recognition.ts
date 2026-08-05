@@ -163,22 +163,25 @@ export function useImageRecognition() {
 
     await Promise.allSettled(workers)
 
-    // 先补码、再去重：补码前 fundCode 可能是 "QDII" 这类非6位占位（支付宝截图本身不含代码），
-    // 若先按 fundCode 去重会把多只 QDII 基金错误合并成一条。故先用 fundName 补齐真实代码再去重。
+    // 先补码、再去重：支付宝持仓截图本身不含基金代码，模型给的代码（"QDII" 占位 或 编造的6位数字
+    // 如 598001）都不可信。故一律用 fundName 走搜索接口补齐真实代码，不信任模型代码。
+    // 若先按 fundCode 去重会把多只基金错误合并成一条，故先补码再去重。
     for (const fund of allFunds) {
-      if (!isValidFundCode(fund.fundCode) && fund.fundName) {
-        try {
-          const m = await matchFundByCatalogName(fund.fundName)
-          if (m) {
-            console.log('[补码]', fund.fundName, '→', m.fundCode, m.matchedName, `(${m.method} ${(m.score * 100).toFixed(0)}%)`)
-            fund.fundCode = m.fundCode
-            // 用搜索结果的标准名替换模型名：保证代码+名称配套（都来自同一搜索结果），
-            // 避免模型名带注记/重复后缀（如 "(QDII)A(人民币份额)A"）与代码错位展示。
-            fund.fundName = m.matchedName
-          }
-        } catch {
-          // 目录加载/匹配失败保持原样
+      if (!fund.fundName) continue
+      try {
+        const m = await matchFundByCatalogName(fund.fundName)
+        if (m) {
+          console.log('[补码]', fund.fundName, '→', m.fundCode, m.matchedName, `(${m.method} ${(m.score * 100).toFixed(0)}%)`)
+          fund.fundCode = m.fundCode
+          // 用搜索结果的标准名替换模型名：保证代码+名称配套（都来自同一搜索结果），
+          // 避免模型名带注记/重复后缀（如 "(QDII)A(人民币份额)A"）与代码错位展示。
+          fund.fundName = m.matchedName
+        } else {
+          // 补码未匹配：清掉模型给的不可信代码（编造的6位或QDII占位），后续过滤丢弃
+          fund.fundCode = ''
         }
+      } catch {
+        // 搜索失败保持原样（fund.fundCode 保留模型给的）
       }
     }
 
@@ -198,7 +201,7 @@ export function useImageRecognition() {
         seen.set(f.fundCode, {
           ...existing,
           holdingAmount: existing.holdingAmount ?? f.holdingAmount,
-          accumulatedProfit: existing.accumulatedProfit ?? f.accumulatedProfit,
+          holdingProfit: existing.holdingProfit ?? f.holdingProfit,
           fundName: existing.fundName || f.fundName,
         })
       }
@@ -235,25 +238,33 @@ export function useImageRecognition() {
         fundStore.addFund(fund.fundCode, fund.fundName)
       }
 
-      const hasHolding = fund.holdingAmount != null || fund.accumulatedProfit != null
+      // 持有金额可单独识别（模型有时只读到金额）；但持有收益必须模型实际读出才填入——
+      // holdingProfit 为 null/undefined（模型未返回该字段，常见于漏读亏损）时跳过持仓填入，
+      // 避免 ?? 0 把「读不到」伪装成「0 收益」，列表显示假 0。模型读出的负数会原样落库。
+      const hasHolding = fund.holdingAmount != null && fund.holdingProfit != null
       if (hasHolding) {
         // 封闭式派生模型：将识别的持有金额/累计盈亏转换为份额+成本价
         const recognizedAmount = fund.holdingAmount ?? 0
-        const recognizedProfit = fund.accumulatedProfit ?? 0
+        const recognizedProfit = fund.holdingProfit ?? 0
         const costBasis = recognizedAmount - recognizedProfit // 投入本金 = 持有金额 - 累计盈亏
-        const existing = holdingStore.activeHoldings.find(h => h.fundCode === fund.fundCode)
-        if (existing) {
-          // 已有持仓：重置确认日期，让 syncYesterdayAmounts 重新按今日涨跌幅迁移昨日金额
-          existing.lastConfirmedDate = undefined
-          existing.confirmedBaseAmount = undefined
-          holdingStore.persistHoldings()
-        } else {
-          // 新持仓：根据识别的金额反算份额和成本价
-          // 份额 = 持有金额（以1为参考净值），成本价 = 投入本金 / 份额
-          const shares = recognizedAmount > 0 ? recognizedAmount : 1
-          const costPrice = shares > 0 ? safeDivide(costBasis, shares) : 0
-          holdingStore.addHoldingDirect(fund.fundCode, shares, costPrice, recognizedAmount, recognizedProfit)
+
+        // 已有持仓时先清掉该基金全部旧持仓（含操作日志/pending），再用识别值重建，
+        // 与编辑持仓路径一致——否则只重置确认日期会丢弃识别出的金额/收益，列表沿用旧值，
+        // 经净值推进后累计收益归 0。remove 对无旧持仓的基金是空操作，新持仓路径行为不变。
+        if (holdingStore.activeHoldings.some(h => h.fundCode === fund.fundCode)) {
+          holdingStore.removeHoldingsByFund(fund.fundCode)
         }
+
+        // 份额 = 持有金额（以1为参考净值），成本价 = 投入本金 / 份额
+        const shares = recognizedAmount > 0 ? recognizedAmount : 1
+        const costPrice = shares > 0 ? safeDivide(costBasis, shares) : 0
+        // 补传 valuation（含 jzrq）让 addHoldingDirect 用真实确认日设 lastConfirmedDate，
+        // 与编辑持仓路径对齐——避免未传 jzrq 时 sync 迁移分支用 getNowStr（带时分秒）污染日期比较。
+        const v = fundStore.getValuation(fund.fundCode)
+        holdingStore.addHoldingDirect(
+          fund.fundCode, shares, costPrice, recognizedAmount, recognizedProfit,
+          { gszzl: v?.gszzl, isEstimated: v?.isEstimated, jzrq: v?.jzrq },
+        )
       }
 
       if (isNew) {

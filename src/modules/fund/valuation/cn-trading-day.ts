@@ -92,6 +92,25 @@ export function getPreviousNTradingDay(n: number, date?: dayjs.Dayjs): string {
   return d.format('YYYY-MM-DD')
 }
 
+/**
+ * 从今天起数第 N 个交易日，N=0 表示「今天（今天非交易日则顺延到下一个交易日）」。
+ *
+ * 与 getNextNTradingDay 的区别：后者 n=1 恒返回**明天之后**的第一个交易日，
+ * 无法表达「就用今天」。加减仓确认日需要 offset=0 的语义：
+ *   - T+1 基金当天提交 → 按**当天**净值确认（offset 0）
+ *   - T+2 基金当天提交 → 按**下一交易日**净值确认（offset 1）
+ * 即 offset = delayDays - 1。
+ *
+ * @param n 交易日偏移，0=今天/顺延，1=下一个交易日，以此类推
+ */
+export function getTradingDayFromToday(n: number, date?: dayjs.Dayjs): string {
+  let d = date ?? beijingNow()
+  // 先落到「当前或下一个交易日」（周末/节假日提交时顺延）
+  while (!isCnTradingDay(d)) d = d.add(1, 'day')
+  if (n <= 0) return d.format('YYYY-MM-DD')
+  return getNextNTradingDay(n, d)
+}
+
 /** 获取今日 A股日期字符串 YYYY-MM-DD */
 export function getTodayStr(): string {
   return getBeijingTodayStr()
