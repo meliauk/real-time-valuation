@@ -466,6 +466,7 @@ function submitEdit(): void {
   const nav = referenceNav.value > 0 ? referenceNav.value : 1
   const shares = opForm.holdingAmount / nav
   const v = fundStore.getValuation(fundCode.value)
+  holdingStore.settleAllByFund(fundCode.value)
   holdingStore.addHoldingDirect(
     fundCode.value, shares, nav, opForm.holdingAmount,
     opForm.totalProfit === '' ? 0 : opForm.totalProfit,
