@@ -255,6 +255,8 @@ export const useHoldingStore = defineStore('holding', () => {
       holdingDate: navDate || getNowStr(), createdAt: Date.now(), settled: false,
       initialAmount: amount, yesterdayAmount: amount,
       entryNavDate: navDate,
+      // 成交日即为最后确认日：按该日净值买入，该日涨跌不计入；后续单日推进从下一交易日开始
+      lastConfirmedDate: navDate,
     }
     holdings.value.push(holding)
     logAction({ id: generateId(), fundCode, type: HoldingActionType.Add, sharesBefore: 0, sharesAfter: shares, costBefore: 0, costAfter: netValue, timestamp: Date.now(), note })
@@ -515,17 +517,18 @@ export const useHoldingStore = defineStore('holding', () => {
       const v = valuationMap.get(h.fundCode)
       if (!v || v.dwjz <= 0) continue
       // 旧数据迁移：无 lastConfirmedDate（升版本号清空带时分秒污染值，或录入时未传 jzrq）
-      // 保留现有 yesterdayAmount 作基准（不基于 principal 重算，避免丢历史累计收益），
-      // 只补 lastConfirmedDate 让后续单日推进正常跑。yesterdayAmount 无效时才用 principal 兜底。
+      // 保留现有 yesterdayAmount 作基准（不基于 principal 重算，避免丢历史累计收益）。
+      // 补最后确认日为「最新确认日的前一交易日」，并落到下方单日推进逻辑——确认态下本轮
+      // 即把最新一天涨跌推进进 yesterdayAmount（设成 v.jzrq 后 continue 会导致永久漏推）。
       if (!h.lastConfirmedDate) {
         const principal = h.initialAmount ?? roundMoney(h.shares * h.costPrice)
         const existingAmount = (h.yesterdayAmount != null && h.yesterdayAmount > 0) ? h.yesterdayAmount : null
         const base = existingAmount ?? principal
         h.confirmedBaseAmount = base
         if (existingAmount == null) h.yesterdayAmount = base
-        h.lastConfirmedDate = v.jzrq || ''
+        h.lastConfirmedDate = v.jzrq ? getPreviousNTradingDay(1, dayjs(v.jzrq)) : ''
         changed = true
-        continue
+        // 不 continue：继续走下方单日推进，本轮即推进最新一天
       }
       // 正常更新：仅确认态 + 有新净值日期
       if (v.isEstimated !== false) continue
