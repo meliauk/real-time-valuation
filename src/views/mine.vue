@@ -3,22 +3,29 @@
   <div class="mine-page">
     <!-- 可滚动主体 -->
     <div class="mine-body">
-      <!-- 随机用户卡：登录入口暂时关闭（auth 模块已实现，后期有需要再在 @click 接 /login 开放） -->
-      <section class="user-card glass-card">
-        <div class="avatar" :style="{ background: user.color }">
-          <span class="avatar-initial">{{ user.initial }}</span>
+      <!-- 用户卡：登录入口（未登录点此登录，已登录显示云端用户名并支持退出） -->
+      <section class="user-card glass-card clickable" @click="goLogin">
+        <div class="avatar" :style="{ background: avatarColor }">
+          <span class="avatar-initial">{{ avatarInitial }}</span>
         </div>
         <div class="user-info">
-          <span class="user-name">{{ user.nickname }}</span>
+          <span class="user-name">{{ displayName }}</span>
           <span class="user-hint">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
               <polyline points="10 17 15 12 10 7" />
               <line x1="15" y1="12" x2="3" y2="12" />
             </svg>
-            游客模式
+            {{ isLoggedIn ? '已登录 · 云端同步' : '点击登录' }}
           </span>
         </div>
+        <button v-if="isLoggedIn" class="logout-btn" @click.stop="handleLogout" title="退出登录">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
+        </button>
       </section>
 
       <!-- 栏目入口列表 -->
@@ -93,19 +100,43 @@
 <script setup lang="ts">
 /**
  * 我的页 - 用户中心入口
- * 顶部随机用户卡（登录入口暂时关闭，auth 模块已实现待后期开放），
+ * 顶部用户卡：登录入口（未登录点此登录，已登录显示云端用户名并支持退出），
  * 下方栏目入口：设置 / 数据管理 / 公益 / 关于。
  */
 defineOptions({ name: 'Mine' })
 
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useRandomNickname } from '@/composables/use-random-nickname'
+import { useAuthStore } from '@/modules/auth/auth-store'
 
 const router = useRouter()
 const { user } = useRandomNickname()
+const authStore = useAuthStore()
+
+/** 是否已云端登录 */
+const isLoggedIn = computed(() => !!authStore.currentUserName)
+/** 展示名：已登录用用户名，未登录用随机昵称 */
+const displayName = computed(() => authStore.currentUserName ?? user.value.nickname)
+/** 头像首字 */
+const avatarInitial = computed(() => displayName.value.charAt(0).toUpperCase())
+/** 头像色块：已登录用主题色，未登录用随机色 */
+const avatarColor = computed(() => isLoggedIn.value ? 'var(--color-primary)' : user.value.color)
 
 function go(path: string): void {
   router.push(path)
+}
+
+/** 跳登录页 */
+function goLogin(): void {
+  router.push('/login')
+}
+
+/** 退出登录 */
+function handleLogout(): void {
+  authStore.logout()
+  ElMessage.success('已退出登录')
 }
 </script>
 
@@ -130,14 +161,17 @@ function go(path: string): void {
   padding-bottom: 80px;
 }
 
-/* 随机用户卡（登录入口已关闭，不可点击） */
+/* 随机用户卡（登录入口：点击跳登录） */
 .user-card {
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
   padding: var(--spacing-md) var(--spacing-lg);
   transition: background var(--transition-fast);
-  cursor: default;
+  cursor: pointer;
+}
+.user-card.clickable:hover {
+  background: var(--bg-card-hover);
 }
 .avatar {
   display: flex;
@@ -172,6 +206,25 @@ function go(path: string): void {
   gap: 4px;
   font-size: var(--font-xs);
   color: var(--text-muted);
+}
+.logout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+.logout-btn:hover {
+  color: var(--color-rise);
+  border-color: var(--color-rise);
+  background: var(--color-rise-glow);
 }
 
 /* 栏目入口列表 */

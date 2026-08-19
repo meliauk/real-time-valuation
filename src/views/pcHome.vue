@@ -62,6 +62,7 @@ import { useFundData } from '@/composables/use-fund-data'
 import { useAutoRefresh } from '@/composables/use-auto-refresh'
 import { useCrossDay } from '@/composables/use-cross-day'
 import { confirm } from '@/composables/use-confirm'
+import { useCloudSync } from '@/composables/use-cloud-sync'
 import { useFundStore } from '@/modules/fund/fund-store'
 import { useHoldingStore } from '@/modules/holding/holding-store'
 import { useSettingsStore } from '@/modules/settings/settings-store'
@@ -72,6 +73,7 @@ const fundStore = useFundStore()
 const holdingStore = useHoldingStore()
 const settingsStore = useSettingsStore()
 const { sortedFundRows, dashboardStats, refreshData } = useFundData()
+const { maybePromptLoad } = useCloudSync()
 useAutoRefresh()
 useCrossDay()
 
@@ -121,6 +123,8 @@ onActivated(() => {
   if (fundStore.fundCodes.length > 0 && fundStore.valuationMap.size === 0) refreshData()
   stopCountdown()
   startCountdown()
+  // 延迟触发，避开启动公告等其它弹窗叠放
+  setTimeout(() => { void maybePromptLoad() }, 500)
 })
 
 // ===== T+2 提示 =====

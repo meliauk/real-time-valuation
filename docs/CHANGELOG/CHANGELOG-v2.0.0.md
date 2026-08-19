@@ -15,6 +15,21 @@
   - 独立 JSONP 取数服务，串行获取 `Data_netWorthTrend` + `syl_*` 计算周期收益
   - 表格新增 5 列：近1周 / 近1月 / 近3月 / 近6月 / 近1年，红涨绿跌
 
+- **基金数据云端同步**：新增 `src/modules/sync/` 模块，对接 Supabase
+  - `supabase-client.ts`：fetch 直调 PostgREST，`checkUserName` 登录校验 + `syncUserConfig` 写入 `user_configs.data`
+  - `collect-fund-data.ts`：把基金相关 localStorage 缓存（自选/名称/估值/持仓/推算持仓/分时/涨跌等）拼成一个大 JSON
+  - `constants.ts` 新增 `SUPABASE_CONFIG`（⚠️ 当前实为 service_role key，前端公开暴露有全库风险）
+
+- **登录改造为仅用户名**：`login.vue` 改为单用户名输入，`auth-store` 新增 `loginByUserName` / `currentUserName`（校验云端 `user_configs.user_name`，无密码）
+
+- **登录入口接「我的」页用户卡**：`mine.vue` 顶部用户卡作为登录入口，未登录点击跳登录页，已登录显示云端用户名并支持退出（软提示，不强制跳转）
+
+- **30 天登录有效期**：`auth-store` 恢复登录态时校验 `cloudLoginAt` 时间戳，超过 30 天自动失效需重新登录
+
+- **首页云端加载弹框（一次性）**：新增 `use-cloud-sync.ts` + `sync-flag.ts`，已登录用户进入首页（移动 `home.vue` + PC `pcHome.vue`）时弹一次「是否加载 `user_configs.data`」，选择后记入本地缓存永久有效、下次不再弹；该标记存 `SYNC_LOADED_MAP`，不写入 `data` 字段
+
+- **PC 指数条拆分上下布局**：`index-bar-pc.vue` 上半指数列表、下半操作按钮区，新增「一键同步」按钮
+
 ## 修改
 
 - **DashboardStats**（`dashboard-stats.vue`）：新增 `pcMode` prop，PC 模式始终展开、不可折叠、更紧凑布局

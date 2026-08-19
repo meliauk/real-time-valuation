@@ -115,6 +115,21 @@
 
 ---
 
+## ☁️ 云端同步（Supabase）
+
+- **仅用户名登录**：输入用户名后校验 `user_configs` 表中是否存在对应 `user_name`，存在即登录（无密码）。登录态缓存 30 天，过期自动失效需重新登录。
+- **登录入口**：「我的」页顶部用户卡即登录入口，未登录点击跳登录页，已登录显示云端用户名并提供退出按钮（软提示，不强制，游客仍可浏览）。
+- **一键同步**：PC 首页左侧「一键同步」按钮，把基金自选、持仓、估值/分时/涨跌等浏览器缓存拼成一个大 JSON，写入 `user_configs.data`。
+- **云端加载弹框**：已登录用户进入首页时弹一次「是否加载 `user_configs.data`」，选择后记入本地缓存（永久有效），下次不再弹；该标记不写入 `data`，仅本地 UI 状态。
+
+> 前置（手动，一次性）：
+> ```sql
+> alter table public.user_configs add column if not exists user_name text;
+> ```
+> 并在 Supabase 中插入授权用户行（填 `user_name` 与任意 `user_id` uuid，`data` 可留空）。
+
+---
+
 ## 🚀 部署
 
 <p align="center">

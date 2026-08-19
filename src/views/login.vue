@@ -1,5 +1,5 @@
 <template>
-  <!-- 登录页 - 邮箱 + 密码 -->
+  <!-- 登录页 - 仅用户名（校验 user_configs.user_name） -->
   <div class="settings-sub-page">
     <!-- 固定头部：返回按钮 + 标题 -->
     <header class="settings-header glass-card">
@@ -31,56 +31,27 @@
             </svg>
           </div>
           <h3 class="auth-title">欢迎回来</h3>
-          <p class="auth-subtitle">登录后可同步身份标识</p>
+          <p class="auth-subtitle">输入用户名登录，云端身份标识</p>
         </div>
 
         <!-- 表单 -->
         <form class="auth-form" @submit.prevent="handleLogin">
           <div class="form-field">
-            <label class="field-label">邮箱</label>
+            <label class="field-label">用户名</label>
             <div class="input-wrap">
               <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                <polyline points="22,6 12,13 2,6" />
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
               </svg>
               <input
-                v-model="email"
-                type="email"
+                v-model="username"
+                type="text"
                 class="input-base auth-input"
-                placeholder="请输入邮箱"
-                autocomplete="email"
+                placeholder="请输入用户名"
+                autocomplete="username"
                 :disabled="loading"
                 @keyup.enter="handleLogin"
               />
-            </div>
-          </div>
-
-          <div class="form-field">
-            <label class="field-label">密码</label>
-            <div class="input-wrap">
-              <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
-              <input
-                v-model="password"
-                :type="showPassword ? 'text' : 'password'"
-                class="input-base auth-input"
-                placeholder="请输入密码"
-                autocomplete="current-password"
-                :disabled="loading"
-                @keyup.enter="handleLogin"
-              />
-              <button type="button" class="pwd-toggle" :title="showPassword ? '隐藏' : '显示'" @click="showPassword = !showPassword">
-                <svg v-if="showPassword" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-                <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                  <line x1="1" y1="1" x2="23" y2="23" />
-                </svg>
-              </button>
             </div>
           </div>
 
@@ -96,7 +67,7 @@
         </div>
 
         <p class="auth-note text-muted">
-          账号仅本机有效，用于身份标识，不影响基金自选与持仓数据
+          用户名需已在云端 user_configs 中添加，否则无法登录
         </p>
       </div>
     </div>
@@ -105,7 +76,8 @@
 
 <script setup lang="ts">
 /**
- * 登录页 - 邮箱 + 密码登录
+ * 登录页 - 仅用户名登录
+ * 流程：输入用户名 → 查 Supabase user_configs 是否存在该 user_name，存在即登录。
  * 复用 settings-sub-page 骨架与 input-base/btn-primary/glass-card 控件，三主题自动跟随。
  */
 defineOptions({ name: 'Login' })
@@ -113,31 +85,27 @@ defineOptions({ name: 'Login' })
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { useAuthStore, isValidEmail } from '@/modules/auth/auth-store'
-import { AUTH_CONFIG } from '@/config/constants'
+import { useAuthStore } from '@/modules/auth/auth-store'
+import { useBreakpoint } from '@/composables/use-breakpoint'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const { isDesktop } = useBreakpoint()
 
-const email = ref('')
-const password = ref('')
-const showPassword = ref(false)
+const username = ref('')
 const loading = ref(false)
 
+/** 登录：校验用户名是否存在于云端 user_configs */
 async function handleLogin(): Promise<void> {
   if (loading.value) return
-  if (!email.value.trim()) { ElMessage.warning('请输入邮箱'); return }
-  if (!isValidEmail(email.value)) { ElMessage.warning('邮箱格式不正确'); return }
-  if (password.value.length < AUTH_CONFIG.PASSWORD_MIN_LEN) {
-    ElMessage.warning(`密码至少 ${AUTH_CONFIG.PASSWORD_MIN_LEN} 位`)
-    return
-  }
+  if (!username.value.trim()) { ElMessage.warning('请输入用户名'); return }
   loading.value = true
   try {
-    const res = await authStore.login(email.value, password.value)
+    const res = await authStore.loginByUserName(username.value)
     if (res.ok) {
       ElMessage.success('登录成功')
-      router.replace('/')
+      // 按浏览器视口判断目标页：桌面端跳 PC 首页 /pc，移动端跳默认首页 /
+      router.replace(isDesktop.value ? '/pc' : '/')
     } else {
       ElMessage.warning(res.error || '登录失败')
     }
@@ -148,7 +116,7 @@ async function handleLogin(): Promise<void> {
 </script>
 
 <style scoped>
-/* 登录/注册页共用表单样式（独立 auth- 前缀，避免与 setting- 冲突） */
+/* 登录页表单样式（独立 auth- 前缀，避免与 setting- 冲突） */
 .auth-card {
   padding: var(--spacing-xl);
   display: flex;
@@ -219,22 +187,6 @@ async function handleLogin(): Promise<void> {
   height: 44px;
   font-size: var(--font-sm);
 }
-.pwd-toggle {
-  position: absolute;
-  right: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: color var(--transition-fast);
-}
-.pwd-toggle:hover { color: var(--text-primary); }
 
 .auth-submit {
   width: 100%;

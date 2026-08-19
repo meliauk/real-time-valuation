@@ -74,6 +74,7 @@ import { useAutoRefresh } from '@/composables/use-auto-refresh'
 import { useCrossDay } from '@/composables/use-cross-day'
 import { useClockTick } from '@/composables/use-clock-tick'
 import { confirm } from '@/composables/use-confirm'
+import { useCloudSync } from '@/composables/use-cloud-sync'
 import { useFundStore } from '@/modules/fund/fund-store'
 import { useHoldingStore } from '@/modules/holding/holding-store'
 import { useSettingsStore } from '@/modules/settings/settings-store'
@@ -91,6 +92,9 @@ useCrossDay()
 // 分钟级时钟：驱动「已更新」徽章在次日 08:30 按约定清空（纯时间函数非响应式，
 // 不挂时钟则要等下一次估值刷新——交易时段才跑，即 09:30 之后——徽章才消失）
 useClockTick()
+
+// 云端数据加载弹框（首页进入时，已登录且未询问过才弹一次）
+const { maybePromptLoad } = useCloudSync()
 
 // ===== 手动刷新 =====
 const refreshing = ref(false)
@@ -133,6 +137,8 @@ onActivated(() => {
   if (fundStore.fundCodes.length > 0 && fundStore.valuationMap.size === 0) refreshData()
   stopCountdown()
   startCountdown()
+  // 延迟触发，避开 App.vue 启动公告弹窗，避免两层弹窗叠放
+  setTimeout(() => { void maybePromptLoad() }, 500)
 })
 
 // ===== T+2 提示（已去除弹窗，仅重置状态避免残留） =====

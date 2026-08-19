@@ -27,8 +27,12 @@ export interface AuthSession {
   loginAt: number
 }
 
-/** localStorage 持久化结构：全部账号 + 当前 session */
+/** localStorage 持久化结构：全部账号 + 当前 session + 云端登录态 */
 export interface StoredAuth {
   users: AuthUser[]
   session: AuthSession | null
+  /** 云端登录用户名（经 user_configs.user_name 校验通过后记录，用于一键同步标识） */
+  cloudUser: string | null
+  /** 云端登录时间戳（毫秒），用于 30 天有效期判断 */
+  cloudLoginAt: number | null
 }

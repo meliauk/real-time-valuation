@@ -95,6 +95,12 @@ export const STORAGE_KEYS = {
   AUTH: 'jgb_auth',
   /** 启动公告已弹标记（sessionStorage：刷新保留、重启应用清空，控制每次启动弹一次） */
   STARTUP_NOTICE_SHOWN: 'jgb_startup_notice_shown',
+  /**
+   * 云端数据加载询问标记：{ [userName]: true }，永久有效（无过期），
+   * 控制「是否加载 user_configs.data」每个用户名只弹一次。
+   * ⚠️ 仅本地缓存，不参与 collectFundData 同步（不进 data 字段）。
+   */
+  SYNC_LOADED_MAP: 'jgb_sync_loaded_map',
 } as const
 
 /** 腾讯接口地址（CORS 放行，Worker 内 fetch 主源） */
@@ -189,6 +195,25 @@ export const EMAILJS_CONFIG = {
   CODE_EXPIRE_MIN: 5,
   /** 同邮箱重发间隔限制（秒） */
   RESEND_LIMIT_SEC: 60,
+} as const
+
+/**
+ * Supabase 数据库配置 - 基金数据云端同步用。
+ *
+ * 表：user_configs（user_name 标识用户，data 字段存基金缓存大 JSON）。
+ * 登录时校验 user_name 是否存在于该表；一键同步时按 user_name 写入/更新 data。
+ *
+ * ⚠️ 安全提示：ANON_KEY 实为 service_role key（拥有全库最高权限、可绕过 RLS），
+ *    打进前端 bundle 后任何访问者都可读取并操作全库。当前按需求使用，正式上线
+ *    务必替换为受 RLS 约束的 anon key（Publishable key）。
+ */
+export const SUPABASE_CONFIG = {
+  /** 项目 URL */
+  URL: 'https://mkrwnqvpdhnlixbtbikk.supabase.co',
+  /** PostgREST REST API 地址 */
+  REST_URL: 'https://mkrwnqvpdhnlixbtbikk.supabase.co/rest/v1',
+  /** API Key（JWT；注意：此处为 service_role，非 anon） */
+  ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1rcnducXZwZGhubGl4YnRiaWtrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NjgxNTY5OSwiZXhwIjoyMDkyMzkxNjk5fQ.HmCyWmZQNjvoxsOXLp_ScZnVwN35fwe4-nSDZJKSw8M',
 } as const
 
 /** 账号体系通用配置 */
