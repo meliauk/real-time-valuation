@@ -967,7 +967,8 @@ export const useFundStore = defineStore('fund', () => {
 
       // 持仓累计盈亏同步（确认净值推进 + 漏日回放）
       const holdingStore = useHoldingStore()
-      // executePendingActions 内部调 fetchFundNetValueRange（走全局串行 apidata 队列），
+      // executePendingActions 内部调 fetchFundNetValueRange（走 pz: 串行 script 锁，
+      // 与估值合并共用 pingzhongdata 加载，60s 缓存），
       // 不能 await：会阻塞 refreshAllValuations 完成、卡住 Loading 态，导致后续定时刷新全被挡。
       // 改异步不阻塞，与 syncYesterdayAmounts 解耦——executePendingActions 改持仓后下次刷新再同步。
       void holdingStore.executePendingActions(valuationMap.value).catch(() => { /* 静默 */ })

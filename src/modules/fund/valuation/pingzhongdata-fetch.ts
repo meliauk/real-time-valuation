@@ -54,42 +54,65 @@ interface PingzhongTrendPoint {
 export async function fetchPingzhongNavData(fundCode: string): Promise<LsjzRealData | null> {
   if (!isValidFundCode(fundCode)) return null
 
-  const trend = await loadPingzhongTrend(fundCode)
-  if (!trend || trend.length === 0) return null
+  const rows = await fetchPingzhongTrend(fundCode)
+  if (!rows || rows.length === 0) return null
 
-  // 过滤有效项并升序（pingzhongdata 本身升序，保险起见再排一次）
-  const valid = trend
-    .filter((d) => d && typeof d.x === 'number' && Number.isFinite(Number(d.y)))
-    .sort((a, b) => a.x - b.x)
-  if (valid.length === 0) return null
-
-  const latest = valid[valid.length - 1]
-  const dwjz = safeParseFloat(latest.y)
-  let gszzl = Number.isFinite(latest.equityReturn as number) ? safeParseFloat(latest.equityReturn) : 0
+  const latest = rows[rows.length - 1]
+  const dwjz = latest.nav
+  let gszzl = latest.growth ?? 0
 
   // 涨跌缺失：用前一条净值自算（2位）
-  if (gszzl === 0 && valid.length >= 2) {
-    const prev = valid[valid.length - 2]
-    const prevNav = safeParseFloat(prev.y)
+  if (gszzl === 0 && rows.length >= 2) {
+    const prevNav = rows[rows.length - 2].nav
     if (prevNav > 0) {
       gszzl = Math.round(((dwjz - prevNav) / prevNav * 100) * 100) / 100
     }
   }
 
   // recentNavs：最近4条升序，供 fillPrevConfirmedNav 按 delayDays 取滞后N交易日净值
-  const recentNavs: LsjzRow[] = valid.slice(-4).map((d) => ({
-    date: dayjs(d.x).format('YYYY-MM-DD'),
-    nav: safeParseFloat(d.y),
-    growth: Number.isFinite(d.equityReturn as number) ? safeParseFloat(d.equityReturn) : null,
-  }))
-
   return {
     dwjz,
     gszzl,
     gz: dwjz,
-    jzrq: dayjs(latest.x).format('YYYY-MM-DD'),
-    recentNavs,
+    jzrq: latest.date,
+    recentNavs: rows.slice(-4),
   }
+}
+
+/** 净值序列内存缓存（code → {at, rows}）——同一刷新周期内估值合并与计划结算/漏日回放共用，
+ *  避免对同一基金重复下载 pingzhongdata 大体积 js。TTL 60s：
+ *  晚到的当日净值公布最多延迟一个刷新周期生效，可接受。 */
+const trendCache = new Map<string, { at: number; rows: LsjzRow[] }>()
+const TREND_CACHE_TTL_MS = 60_000
+
+/**
+ * 取基金完整净值序列（升序，成立至今）。带 60s 内存缓存；失败返回 null。
+ * 供估值合并（fetchPingzhongNavData）、计划结算/漏日回放（fetchFundNetValueRange）共用。
+ * @param fundCode 基金代码
+ * @returns 升序净值行数组，取数失败返回 null
+ */
+export async function fetchPingzhongTrend(fundCode: string): Promise<LsjzRow[] | null> {
+  if (!isValidFundCode(fundCode)) return null
+
+  const hit = trendCache.get(fundCode)
+  if (hit && Date.now() - hit.at < TREND_CACHE_TTL_MS) return hit.rows
+
+  const trend = await loadPingzhongTrend(fundCode)
+  if (!trend || trend.length === 0) return null
+
+  // 过滤有效项并升序（pingzhongdata 本身升序，保险起见再排一次）
+  const rows = trend
+    .filter((d) => d && typeof d.x === 'number' && Number.isFinite(Number(d.y)) && Number(d.y) > 0)
+    .sort((a, b) => a.x - b.x)
+    .map((d) => ({
+      date: dayjs(d.x).format('YYYY-MM-DD'),
+      nav: safeParseFloat(d.y),
+      growth: Number.isFinite(d.equityReturn as number) ? safeParseFloat(d.equityReturn) : null,
+    }))
+  if (rows.length === 0) return null
+
+  trendCache.set(fundCode, { at: Date.now(), rows })
+  return rows
 }
 
 /** 加载 pingzhongdata，返回 Data_netWorthTrend 净值序列。失败返回 null。

@@ -86,7 +86,6 @@ export async function getFundValuation(
   if (lsjzResult) {
     mergeLsjzConfirmation(result, lsjzResult, delayDays)
   }
-    console.log("->result111",JSON.stringify(result))
   return result
 }
 

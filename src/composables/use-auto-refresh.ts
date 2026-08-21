@@ -63,8 +63,8 @@ export function useAutoRefresh() {
     // 非交易时段或非交易日不刷新（转由收盘后轮询处理）
     if (!inTradingHours.value || !isCnTradingDay()) return
     await fundStore.refreshAllValuations()
-    // executePendingActions 不 await：内部 fetchFundNetValueRange 走串行 apidata 队列会阻塞，
-    // 脱离刷新主链路异步执行，避免卡住下次定时刷新触发
+    // executePendingActions 不 await：内部 fetchFundNetValueRange 走 pz: 串行 script 锁
+    // （与估值合并共用 pingzhongdata 加载）会阻塞，脱离刷新主链路异步执行，避免卡住下次定时刷新触发
     void holdingStore.executePendingActions(fundStore.valuationMap).catch(() => { /* 静默 */ })
   }
 

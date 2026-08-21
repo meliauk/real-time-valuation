@@ -1,17 +1,18 @@
 /**
- * 历史净值区间分页取数
+ * 历史净值区间取数
  *
- * 按日期区间（sdate~edate）分页拉取 F10 lsjz 全部历史净值，去重后升序返回。
- * 用于净值走势展示、累计金额推算等需要完整净值序列的场景。
+ * 按日期区间（sdate~edate）从 pingzhongdata 完整净值序列（Data_netWorthTrend）过滤。
+ * pingzhongdata 为天天基金基金详情 js，含全历史单位净值（升序）。
  *
- * 分页口径：每页 LSJZ_CONFIG.PER_PAGE 条，页内不足 per 视为最后一页停止；
- * 跨页按日期去重（接口分页边界可能重叠）；结果按日期升序排序。
- * 走 f10-apidata-loader 串行加载。
+ * ⚠️ 迁移说明：东方财富 F10 lsjz 接口（F10DataApi.aspx）已失效（见 lsjz-fetch.ts 迁移说明），
+ * 估值合并已改用 pingzhongdata；本文件同步迁移（原 F10DataApi.aspx 分页实现已删除）。
+ * 依赖 fetchPingzhongTrend 的 60s 内存缓存，同一刷新周期内与估值合并共用一次下载。
+ *
+ * 用于待确认计划结算、漏日回放、详情页历史净值回退等需要区间净值的场景。
  */
 
-import { API_URLS, LSJZ_CONFIG } from '@/config/constants'
-import { loadApidata } from '../holdings/f10-apidata-loader'
-import { parseLsjzContent, type LsjzRow } from './lsjz-parser'
+import { fetchPingzhongTrend } from './pingzhongdata-fetch'
+import type { LsjzRow } from './lsjz-parser'
 import { isValidFundCode } from '@/shared/utils/validation'
 
 /**
@@ -19,7 +20,7 @@ import { isValidFundCode } from '@/shared/utils/validation'
  * @param fundCode 基金代码
  * @param sdate    起始日期 YYYY-MM-DD
  * @param edate    结束日期 YYYY-MM-DD
- * @returns 净值行数组（升序，末尾最新），参数非法返回空数组
+ * @returns 净值行数组（升序，末尾最新），参数非法/取数失败返回空数组
  */
 export async function fetchFundNetValueRange(
   fundCode: string,
@@ -30,28 +31,7 @@ export async function fetchFundNetValueRange(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(sdate) || !/^\d{4}-\d{2}-\d{2}$/.test(edate)) return []
   if (sdate > edate) return []
 
-  const merged = new Map<string, LsjzRow>()
-  let pageNum = 1
-  const per = LSJZ_CONFIG.PER_PAGE
-
-  while (true) {
-    const url = `${API_URLS.F10_LSJZ}?type=lsjz&code=${fundCode}&page=${pageNum}&per=${per}&sdate=${sdate}&edate=${edate}`
-    try {
-      const apidata = await loadApidata(url, LSJZ_CONFIG.TIMEOUT)
-      const content = apidata?.content || ''
-      const batch = parseLsjzContent(content)
-      if (!batch.length) break
-
-      for (const row of batch) {
-        merged.set(row.date, row)
-      }
-      // 不足一页 → 最后一页
-      if (batch.length < per) break
-      pageNum++
-    } catch {
-      break
-    }
-  }
-
-  return Array.from(merged.values()).sort((a, b) => a.date.localeCompare(b.date))
+  const rows = await fetchPingzhongTrend(fundCode)
+  if (!rows || rows.length === 0) return []
+  return rows.filter((r) => r.date >= sdate && r.date <= edate)
 }

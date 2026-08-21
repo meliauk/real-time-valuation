@@ -85,7 +85,6 @@ export function useFundData() {
     return fundStore.fundCodes.map(code => {
       try {
         const v = fundStore.getValuation(code)
-        console.log("->基金",v)
         const gszzl = v?.gszzl || 0
         const displayGszzl = displayRate(gszzl)
         const isEstimated = v?.isEstimated ?? true
