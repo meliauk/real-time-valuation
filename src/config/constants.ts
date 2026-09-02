@@ -93,11 +93,12 @@ export const STORAGE_KEYS = {
   RANDOM_NICKNAME: 'jgb_random_nickname',
   /** 账号体系：注册用户列表 + 当前登录态（邮箱注册/登录） */
   AUTH: 'jgb_auth',
-  /** 启动公告已弹标记（sessionStorage：刷新保留、重启应用清空，控制每次启动弹一次） */
+  /** 启动公告已弹标记：存「已弹过的版本号」（__APP_VERSION__，每次构建唯一），
+   *  控制公告每个版本只弹一次；版本号缺失时退化为 sessionStorage 每会话一次 */
   STARTUP_NOTICE_SHOWN: 'jgb_startup_notice_shown',
   /**
-   * 云端数据加载询问标记：{ [userName]: true }，永久有效（无过期），
-   * 控制「是否加载 user_configs.data」每个用户名只弹一次。
+   * 云端数据加载询问标记：{ [userName]: true }，每次登录会话只问一次——
+   * 登出时清空（authStore.logout → clearSyncAsked），重新登录后再询问。
    * ⚠️ 仅本地缓存，不参与 collectFundData 同步（不进 data 字段）。
    */
   SYNC_LOADED_MAP: 'jgb_sync_loaded_map',

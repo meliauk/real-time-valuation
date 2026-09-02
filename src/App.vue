@@ -58,23 +58,37 @@ import NoticeModal from '@/components/shared/notice-modal.vue'
 import { useSettingsStore } from '@/modules/settings/settings-store'
 import { useConfirmState, resolveConfirm, resolveCancel } from '@/composables/use-confirm'
 import { STORAGE_KEYS } from '@/config/constants'
-import { hasSessionFlag, setSessionFlag } from '@/shared/cache/local-storage-io'
+import { loadString, saveString, hasSessionFlag, setSessionFlag } from '@/shared/cache/local-storage-io'
 
 const route = useRoute()
 const settingsStore = useSettingsStore()
 const confirmState = useConfirmState()
 
-/* 启动公告：每次"启动 app"弹一次，刷新不弹。
-   区分依据 sessionStorage——刷新保留、关闭 app/标签页清空：
-     - 启动 app（新会话）→ 标记不存在 → 弹 → 关闭时置标记
-     - 刷新页面（同会话）→ 标记已存在 → 不弹
-     - 重启 app（关闭重开）→ 会话清空标记清除 → 再弹 */
-const startupNoticeVisible = ref(!hasSessionFlag(STORAGE_KEYS.STARTUP_NOTICE_SHOWN))
+/* 启动公告：每个版本（每次构建发布）只弹一次，同版本内刷新/重启不再弹。
+   原实现用 sessionStorage 每次启动 app 都弹 → 对老用户反复打扰；
+   改为 localStorage 存「已弹过的版本号」，版本号 = __APP_VERSION__
+   （git 短哈希+构建时间戳，vite 每次构建注入、每次发布唯一）：
+     - 首次使用或升级到新版本 → 本地无记录/版本不同 → 弹
+     - 同版本内刷新、重启 → 版本相同 → 不弹
+   ⚠️ 版本号缺失（极端情况）退化为旧行为：每会话弹一次。 */
+const startupNoticeVisible = ref(shouldShowStartupNotice())
 
-/** 公告关闭：置本会话已弹标记，本次刷新/重启前不再弹 */
+function currentAppVersion(): string {
+  return typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : ''
+}
+
+function shouldShowStartupNotice(): boolean {
+  const v = currentAppVersion()
+  if (!v) return !hasSessionFlag(STORAGE_KEYS.STARTUP_NOTICE_SHOWN)
+  return loadString(STORAGE_KEYS.STARTUP_NOTICE_SHOWN) !== v
+}
+
+/** 公告关闭：记录当前版本已弹，本版本内不再弹 */
 function closeStartupNotice(): void {
   startupNoticeVisible.value = false
-  setSessionFlag(STORAGE_KEYS.STARTUP_NOTICE_SHOWN)
+  const v = currentAppVersion()
+  if (!v) setSessionFlag(STORAGE_KEYS.STARTUP_NOTICE_SHOWN)
+  else saveString(STORAGE_KEYS.STARTUP_NOTICE_SHOWN, v)
 }
 
 /* 全屏视图：隐藏底部导航栏与跑马灯，不保留底部留白。

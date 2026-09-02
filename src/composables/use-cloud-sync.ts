@@ -1,10 +1,12 @@
 /**
- * 云端同步 Composable - 首页进入时「是否加载云端数据」的一次性弹框 + 恢复
+ * 云端同步 Composable - 登录会话内「是否加载云端数据」的一次性弹框 + 恢复
  *
- * 流程：已登录（cloudUser 有效）且该用户名未询问过 → 弹确认框：
+ * 流程：已登录（cloudUser 有效）且本次登录会话未询问过 → 弹确认框：
  *   - 点「加载」：读 user_configs.data → 写回 localStorage → reload 使内存 store 重新加载
- *   - 点「不加载」：仅记标记，下次不再问
- * 标记用 sync-flag 永久存 localStorage，不参与 data 同步。
+ *   - 点「不加载」：仅记标记，本次登录会话内不再问
+ * 标记用 sync-flag 存 localStorage，登出时清空（authStore.logout）——
+ * 重新登录后再次询问，保证每次登录都能选择拉取最新云端数据。
+ * 标记不参与 data 同步。
  */
 
 import { ref } from 'vue'
@@ -38,7 +40,7 @@ export function useCloudSync() {
         confirmText: '加载',
         cancelText: '不加载',
       })
-      // 用户已做选择（无论加载与否），标记已询问，下次不再弹
+      // 用户已做选择（无论加载与否），标记已询问，本次登录会话内不再弹（登出后清空重问）
       if (!ok) {
         markSyncAsked(name)
         return

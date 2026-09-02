@@ -14,6 +14,7 @@ import { STORAGE_KEYS, AUTH_CONFIG } from '@/config/constants'
 import { loadJSON, saveJSON } from '@/shared/cache/local-storage-io'
 import { randomSalt, hashPassword, verifyPassword } from './crypto'
 import { checkUserName } from '@/modules/sync/supabase-client'
+import { clearSyncAsked } from '@/modules/sync/sync-flag'
 import type { AuthUser, AuthSession, StoredAuth } from './auth-types'
 
 /** 邮箱格式校验（宽松：有 @ 与域名段即可） */
@@ -114,11 +115,14 @@ export const useAuthStore = defineStore('auth', () => {
     return { ok: true }
   }
 
-  /** 退出登录（清 session 与云端登录态，保留账号记录） */
+  /** 退出登录（清 session 与云端登录态，保留账号记录）。
+   *  同时清空云端数据加载询问标记（SYNC_LOADED_MAP）——重新登录后再次询问
+   *  「是否加载云端数据」，让用户每次登录都能选择拉取最新云端数据。 */
   function logout(): void {
     session.value = null
     cloudUser.value = null
     cloudLoginAt.value = null
+    clearSyncAsked()
   }
 
   /**
