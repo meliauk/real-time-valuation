@@ -6,6 +6,12 @@
 -->
 <template>
   <div id="app" class="app-layout">
+    <!-- 路由加载进度条：懒加载路由 chunk 下载期间的可见反馈。
+         没有它时，慢网下首次点击基金行的表现是"点了完全没反应"（URL 与视图都不变）。 -->
+    <transition name="route-progress">
+      <div v-if="routeLoading" class="route-progress"><span class="route-progress-bar"></span></div>
+    </transition>
+
     <main class="app-main">
       <router-view v-slot="{ Component }">
         <transition name="route-fade" mode="default">
@@ -57,6 +63,7 @@ import ConfirmModal from '@/components/shared/confirm-modal.vue'
 import NoticeModal from '@/components/shared/notice-modal.vue'
 import { useSettingsStore } from '@/modules/settings/settings-store'
 import { useConfirmState, resolveConfirm, resolveCancel } from '@/composables/use-confirm'
+import { routeLoading } from '@/composables/use-route-loading'
 import { STORAGE_KEYS } from '@/config/constants'
 import { loadString, saveString, hasSessionFlag, setSessionFlag } from '@/shared/cache/local-storage-io'
 
@@ -114,6 +121,39 @@ watch(() => settingsStore.enableGlassEffect, (enabled) => {
 </script>
 
 <style scoped>
+/* ===== 路由加载进度条（fixed 到视口顶部，不受 .app-layout 的 overflow 影响） ===== */
+.route-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 9999;
+  pointer-events: none;
+  overflow: hidden;
+  background: rgba(99, 102, 241, 0.12);
+}
+.route-progress-bar {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--color-primary), transparent);
+  animation: route-progress-slide 1.1s ease-in-out infinite;
+}
+@keyframes route-progress-slide {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(250%); }
+}
+/* 减少动画偏好：静态整条，不做位移动画 */
+:global(.reduce-motion) .route-progress-bar {
+  animation: none;
+  width: 100%;
+}
+.route-progress-enter-active,
+.route-progress-leave-active { transition: opacity 0.2s ease; }
+.route-progress-enter-from,
+.route-progress-leave-to { opacity: 0; }
+
 .app-layout {
   display: flex;
   flex-direction: column;

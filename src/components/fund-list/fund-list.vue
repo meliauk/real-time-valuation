@@ -103,6 +103,7 @@
                 class="fund-row animate-stagger"
                 :class="{ 'longpress-active': popup.visible && popup.fundCode === row.fundCode }"
                 @click="handleRowClick(row.fundCode)"
+                @mouseenter="preloadFundDetail('full')"
                 @touchstart.passive="onTouchStart($event, row.fundCode)"
                 @touchmove.passive="onTouchMove($event)"
                 @touchend="onTouchEnd($event)"
@@ -205,7 +206,7 @@
       <div v-if="viewMode === 'card'" class="card-view">
         <!-- 卡片视图工具栏已移至 list-body 外层，固定不随滚动隐藏 -->
 
-        <div v-for="row in sortedRows" :key="row.fundCode" :data-fund-row="row.fundCode" class="fund-card animate-stagger" :class="{ 'longpress-active': popup.visible && popup.fundCode === row.fundCode }" @click="handleCardClick(row.fundCode)" @touchstart.passive="onTouchStart($event, row.fundCode)" @touchmove.passive="onTouchMove($event)" @touchend="onTouchEnd($event)" @mousedown="onMouseDown($event, row.fundCode)" @mousemove="onMouseMove($event)" @mouseup="onMouseUp()" @mouseleave="cancelLongPress()" @contextmenu.prevent="onContextMenu">
+        <div v-for="row in sortedRows" :key="row.fundCode" :data-fund-row="row.fundCode" class="fund-card animate-stagger" :class="{ 'longpress-active': popup.visible && popup.fundCode === row.fundCode }" @click="handleCardClick(row.fundCode)" @mouseenter="preloadFundDetail('full')" @touchstart.passive="onTouchStart($event, row.fundCode)" @touchmove.passive="onTouchMove($event)" @touchend="onTouchEnd($event)" @mousedown="onMouseDown($event, row.fundCode)" @mousemove="onMouseMove($event)" @mouseup="onMouseUp()" @mouseleave="cancelLongPress()" @contextmenu.prevent="onContextMenu">
           <div class="card-top">
             <div class="card-identity">
               <span class="card-name-wrap">
@@ -329,6 +330,7 @@ import type { FundRowData } from '@/composables/use-fund-data'
 import type { ViewMode, SortField, SortDirection } from '@/modules/fund/fund-types'
 import { STORAGE_KEYS } from '@/config/constants'
 import { formatProfitCompact, formatCompactMoney } from '@/shared/utils/money-format'
+import { preloadFundDetail } from '@/modules/fund/prefetch-fund-detail'
 
 const props = defineProps({
   sortedRows: { type: Array as PropType<FundRowData[]>, required: true },

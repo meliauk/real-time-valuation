@@ -81,6 +81,7 @@ src/modules/fund/
 ├─ fund-types.ts                 # 基金板块类型定义（✅ 已落地）
 ├─ fund-store.ts                 # 基金板块 Pinia store（✅ 已落地）
 ├─ fund-bootstrap.ts             # 板块启动编排（恢复缓存+估值刷新+3 loop+跨日重建，✅ 已落地）
+├─ prefetch-fund-detail.ts       # 详情页资源预热（详情路由 chunk + echarts，避免首屏后首次点击详情"没反应"，✅ 已落地）
 ├─ misc/
 │   └─ manager-check.ts          # 基金经理变更检测（每日一次，pingzhongdata 取经理，✅ 已落地）
 # 注：GLM 图像识别在独立 ai 板块（modules/ai/），不在 fund/misc
@@ -169,6 +170,7 @@ src/modules/fund/
 | 文件 | 职责 |
 |------|------|
 | `fund-bootstrap.ts` | `startFundModule`：恢复缓存→预热目录→估值刷新→启动3 service loop；`rebuildFundModuleOnCrossDay`：跨日清缓存+重建Worker+重启。main.ts 挂载后调用 |
+| `prefetch-fund-detail.ts` | `loadFundDetailView`（详情路由组件加载器，router 表复用）；`preloadFundDetail('view'\|'full')`：预热详情路由 chunk（+ echarts 518KB，弱网/省流量自动降级）；`schedulePreloadFundDetail`：main.ts 挂载后空闲预热。**为什么需要**：详情路由是懒加载 chunk，此前只在"第一次点基金行"时才下载，慢网下表现为「第一次打开详情没反应，过一会儿再点才好」 |
 
 ### misc/
 

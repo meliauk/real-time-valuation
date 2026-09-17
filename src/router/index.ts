@@ -3,6 +3,7 @@
  */
 
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { loadFundDetailView } from '@/modules/fund/prefetch-fund-detail'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -100,7 +101,9 @@ const router = createRouter({
     {
       path: '/fund/:code',
       name: 'FundDetail',
-      component: () => import('@/views/fund-detail.vue'),
+      // 走共享加载器：与首屏空闲预热/列表悬停预热同一份动态 import（见 prefetch-fund-detail），
+      // 预热命中时懒加载即时 resolve，避免"第一次点详情没反应"。
+      component: loadFundDetailView,
     },
   ],
 })

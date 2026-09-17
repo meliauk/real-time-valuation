@@ -18,6 +18,8 @@ import App from './App.vue'
 import router from './router'
 import './assets/styles/main.css'
 import { startFundModule } from './modules/fund/fund-bootstrap'
+import { schedulePreloadFundDetail } from './modules/fund/prefetch-fund-detail'
+import { setupRouteLoading } from './composables/use-route-loading'
 import { useSettingsStore } from './modules/settings/settings-store'
 import { useCacheStore } from './modules/fund/cache-store'
 import { useHoldingStore } from './modules/holding/holding-store'
@@ -33,6 +35,9 @@ app.use(createPinia())
 app.use(router)
 app.use(ElementPlus)
 
+// 路由加载态：懒加载 chunk 下载期间给顶层进度条反馈（否则点击像"没反应"）
+setupRouteLoading(router)
+
 app.mount('#app')
 
 // 应用主题（dark/light）
@@ -40,6 +45,10 @@ useSettingsStore().initTheme()
 
 // 启动基金板块（恢复缓存 + 估值刷新 + 3 service loop）
 void startFundModule()
+
+// 预热基金详情页资源：详情路由 chunk 之前只在"第一次点基金行"时才下载（内含 518KB 的 echarts），
+// 慢网下表现为「第一次打开详情没反应，过一会儿再点才打开」。挂载后空闲预热，点击即秒开。
+schedulePreloadFundDetail()
 
 // 版本检查器：GitHub Pages 缓存 index.html 导致老用户读旧版，此处轮询 version.json，
 // 与当前运行版本不一致即强制刷新，让用户自动用上最新部署。详见 version-checker.ts。

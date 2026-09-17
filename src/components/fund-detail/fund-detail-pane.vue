@@ -130,13 +130,16 @@
         <button :class="['seg-btn', chartMode === 'history' ? 'seg-active' : '']" @click="chartMode = 'history'">历史走势</button>
       </div>
       <div class="chart-box">
+        <!-- 图表库（518KB）动态加载中/失败时先给占位，不再出现"图表区域空白却显示暂无数据"的误判 -->
         <template v-if="chartMode === 'intraday'">
-          <v-chart v-if="intradayChartOption" :option="intradayChartOption" autoresize class="chart" />
+          <v-chart v-if="chartLibReady && intradayChartOption" :option="intradayChartOption" autoresize class="chart" />
+          <div v-else-if="!chartLibReady" class="chart-empty"><span class="animate-breathe">{{ chartLibTip }}</span></div>
           <div v-else class="chart-empty"><p class="text-muted">暂无当日走势数据</p></div>
         </template>
         <template v-else>
           <div v-if="chartLoading" class="chart-empty"><span class="animate-breathe">加载图表数据...</span></div>
-          <v-chart v-else-if="chartOption" :option="chartOption" autoresize class="chart" />
+          <v-chart v-else-if="chartLibReady && chartOption" :option="chartOption" autoresize class="chart" />
+          <div v-else-if="!chartLibReady" class="chart-empty"><span class="animate-breathe">{{ chartLibTip }}</span></div>
           <div v-else class="chart-empty"><p class="text-muted">暂无历史数据</p></div>
         </template>
       </div>
@@ -291,14 +294,10 @@
  * 职责：单只基金的展示与数据加载（走势图/持仓操作/T+2 推算/详情）。
  * 不含：左右滑动状态机、切换按钮、路由同步（这些在壳层）。
  */
-import { ref, computed, watch, onMounted, reactive } from 'vue'
+import { ref, computed, watch, onMounted, reactive, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import VChart from 'vue-echarts'
-import { use } from 'echarts/core'
-import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, DataZoomComponent, MarkLineComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
+import { chartLibState, loadFundDetailChart } from './chart-lib'
 import { useFundStore } from '@/modules/fund/fund-store'
 import { useHoldingStore } from '@/modules/holding/holding-store'
 import { useSettingsStore } from '@/modules/settings/settings-store'
@@ -317,7 +316,18 @@ import { classifyShare } from '@/shared/market/market-classify'
 import { EM_MARKET_LABEL } from '@/shared/market/em-market-map'
 import type { StockQuoteInfo } from '@/shared/types/common-types'
 
-use([LineChart, GridComponent, TooltipComponent, DataZoomComponent, MarkLineComponent, CanvasRenderer])
+/**
+ * 走势图组件：echarts（约 518KB）改为运行时动态加载（见 chart-lib.ts）。
+ * 旧实现静态 import，导致 echarts 成为详情路由 chunk 的硬依赖——路由懒加载要等它下载完才 resolve，
+ * 慢网下首次点击基金行就表现为"点了没反应"。现在详情页首屏不等图表库，
+ * 走势图区域先显示占位文案，echarts 到位后自动补上。
+ */
+const VChart = defineAsyncComponent(loadFundDetailChart)
+
+/** 图表库是否已就绪：就绪才渲染 <v-chart>（echarts 按需注册必须先于渲染完成） */
+const chartLibReady = computed(() => chartLibState.value === 'ready')
+/** 图表库未就绪时的占位文案 */
+const chartLibTip = computed(() => chartLibState.value === 'error' ? '图表库加载失败，请刷新重试' : '加载图表库...')
 
 const props = defineProps<{ fundCode: string }>()
 const router = useRouter()
@@ -765,6 +775,8 @@ async function loadData(code: string): Promise<void> {
 }
 
 onMounted(() => {
+  // 图表库后台加载：与首屏数据加载并行，页面不等它（走势图区域先显示占位）
+  void loadFundDetailChart().catch(() => { /* 失败由 chartLibState='error' 反映到占位文案 */ })
   if (fundCode.value) loadData(fundCode.value)
 })
 
